@@ -1,7 +1,7 @@
 #!/bin/bash
 
-author=233boy
-# github=https://github.com/233boy/sing-box
+is_sh_owner=ExNG51
+# github=https://github.com/ExNG51/sing-box
 
 # bash fonts colors
 red='\e[31m'
@@ -83,14 +83,14 @@ is_conf_dir=$is_core_dir/conf
 is_log_dir=/var/log/$is_core
 is_sh_bin=/usr/local/bin/$is_core
 is_sh_dir=$is_core_dir/sh
-is_sh_repo=$author/$is_core
+is_sh_repo=$is_sh_owner/$is_core
 is_pkg="wget unzip tar qrencode bash"
 is_config_json=$is_core_dir/config.json
 is_caddy_bin=/usr/local/bin/caddy
 is_caddy_dir=/etc/caddy
 is_caddy_repo=caddyserver/caddy
 is_caddyfile=$is_caddy_dir/Caddyfile
-is_caddy_conf=$is_caddy_dir/$author
+is_caddy_conf=$is_caddy_dir/$is_core
 is_systemd=$(type -P systemctl)
 is_openrc=$(type -P rc-service)
 if [[ $is_systemd ]]; then
