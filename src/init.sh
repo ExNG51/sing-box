@@ -52,10 +52,12 @@ load() {
     . $is_sh_dir/src/$1
 }
 
-# wget add --no-check-certificate
+# wget wrapper. TLS certificate verification is enabled by default.
 _wget() {
     # [[ $proxy ]] && export https_proxy=$proxy
-    wget --no-check-certificate "$@"
+    local wget_opts=()
+    [[ ${SING_BOX_INSECURE_DOWNLOAD:-} ]] && wget_opts+=("--no-check-certificate")
+    wget "${wget_opts[@]}" "$@"
 }
 
 # apt-get, yum, zypper or apk
@@ -84,7 +86,7 @@ is_log_dir=/var/log/$is_core
 is_sh_bin=/usr/local/bin/$is_core
 is_sh_dir=$is_core_dir/sh
 is_sh_repo=$is_sh_owner/$is_core
-is_pkg="wget unzip tar qrencode bash"
+is_pkg="wget unzip tar qrencode bash ca-certificates coreutils"
 is_config_json=$is_core_dir/config.json
 is_caddy_bin=/usr/local/bin/caddy
 is_caddy_dir=/etc/caddy

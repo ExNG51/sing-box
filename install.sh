@@ -71,7 +71,7 @@ is_log_dir=/var/log/$is_core
 is_sh_bin=/usr/local/bin/$is_core
 is_sh_dir=$is_core_dir/sh
 is_sh_repo=$is_sh_owner/$is_core
-is_pkg="wget tar bash"
+is_pkg="wget tar bash ca-certificates coreutils"
 # Alpine: gcompat provides glibc compatibility for prebuilt binaries
 [[ $cmd =~ apk ]] && is_pkg="$is_pkg gcompat jq"
 is_config_json=$is_core_dir/config.json
@@ -86,14 +86,12 @@ tmp_var_lists=(
 )
 
 # tmp dir
-tmpdir=$(mktemp -u)
-[[ ! $tmpdir ]] && {
-    tmpdir=/tmp/tmp-$RANDOM
-}
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/sing-box-install.XXXXXX") || err "创建临时目录失败."
+trap 'rm -rf "$tmpdir"' EXIT INT TERM
 
 # set up var
-for i in ${tmp_var_lists[*]}; do
-    export $i=$tmpdir/$i
+for i in "${tmp_var_lists[@]}"; do
+    export "$i=$tmpdir/$i"
 done
 
 # load bash script.
@@ -101,10 +99,85 @@ load() {
     . $is_sh_dir/src/$1
 }
 
-# wget add --no-check-certificate
+# wget wrapper. TLS certificate verification is enabled by default.
 _wget() {
+    local wget_opts=()
     [[ $proxy ]] && export https_proxy=$proxy
-    wget --no-check-certificate $*
+    [[ $insecure_download ]] && wget_opts+=("--no-check-certificate")
+    wget "${wget_opts[@]}" "$@"
+}
+
+verify_https_url() {
+    case $1 in
+    https://*) ;;
+    *) err "拒绝非 HTTPS 下载地址: $1" ;;
+    esac
+}
+
+download_to_file() {
+    local url=$1
+    local output=$2
+    verify_https_url "$url"
+    _wget -t 3 -q -O "$output" "$url"
+}
+
+verify_sha256() {
+    local file=$1
+    local expected=${2#sha256:}
+    local actual
+    [[ -f $file ]] || err "无法校验不存在的文件: $file"
+    [[ $expected ]] || err "缺少 SHA256 校验值: $file"
+    if type -P sha256sum >/dev/null; then
+        actual=$(sha256sum "$file" | awk '{print $1}')
+    elif type -P shasum >/dev/null; then
+        actual=$(shasum -a 256 "$file" | awk '{print $1}')
+    else
+        err "缺少 sha256sum 或 shasum, 无法校验下载文件."
+    fi
+    [[ $actual == "$expected" ]] || err "SHA256 校验失败: $file"
+}
+
+get_github_asset_digest() {
+    local repo=$1
+    local tag=$2
+    local asset=$3
+    local api json_file digest
+    if [[ $tag == "latest" ]]; then
+        api="https://api.github.com/repos/${repo}/releases/latest?v=$RANDOM"
+    else
+        api="https://api.github.com/repos/${repo}/releases/tags/${tag}?v=$RANDOM"
+    fi
+    json_file="$tmpdir/github-${repo//\//-}-${tag}.json"
+    download_to_file "$api" "$json_file" || return 1
+    digest=$(awk -v asset="$asset" '
+        /"name":/ {
+            name=$0
+            sub(/^.*"name"[[:space:]]*:[[:space:]]*"/, "", name)
+            sub(/".*$/, "", name)
+        }
+        /"digest":/ {
+            digest=$0
+            sub(/^.*"digest"[[:space:]]*:[[:space:]]*"/, "", digest)
+            sub(/".*$/, "", digest)
+            if (name == asset && digest != "null") {
+                print digest
+                exit
+            }
+        }
+    ' "$json_file")
+    [[ $digest ]] || err "无法获取 ${repo} ${tag} ${asset} 的 SHA256 digest."
+    echo "$digest"
+}
+
+get_release_checksum_sha256() {
+    local checksum_url=$1
+    local asset=$2
+    local checksum_file=$3
+    local digest
+    download_to_file "$checksum_url" "$checksum_file" || return 1
+    digest=$(awk -v asset="$asset" '($2 == asset || $2 == "*" asset) { print $1; exit }' "$checksum_file")
+    [[ $digest ]] || err "无法在 checksum 文件中找到: $asset"
+    echo "$digest"
 }
 
 # print a mesage
@@ -131,6 +204,7 @@ show_help() {
     echo -e "  -l, --local-install             本地获取安装脚本, 使用当前目录"
     echo -e "  -p, --proxy <addr>              使用代理下载, e.g., -p http://127.0.0.1:2333"
     echo -e "  -v, --core-version <ver>        自定义 $is_core_name 版本, e.g., -v v1.8.13"
+    echo -e "      --insecure-download         禁用 TLS 证书校验下载, 仅用于受限网络; 仍会校验 SHA256"
     echo -e "  -h, --help                      显示此帮助界面\n"
 
     exit 0
@@ -171,19 +245,27 @@ download() {
     case $1 in
     core)
         [[ ! $is_core_ver ]] && is_core_ver=$(_wget -qO- "https://api.github.com/repos/${is_core_repo}/releases/latest?v=$RANDOM" | grep tag_name | grep -E -o 'v([0-9.]+)')
-        [[ $is_core_ver ]] && link="https://github.com/${is_core_repo}/releases/download/${is_core_ver}/${is_core}-${is_core_ver:1}-linux-${is_arch}.tar.gz"
+        asset="${is_core}-${is_core_ver:1}-linux-${is_arch}.tar.gz"
+        [[ $is_core_ver ]] && link="https://github.com/${is_core_repo}/releases/download/${is_core_ver}/${asset}"
+        digest=$(get_github_asset_digest "$is_core_repo" "$is_core_ver" "$asset")
         name=$is_core_name
         tmpfile=$tmpcore
         is_ok=$is_core_ok
         ;;
     sh)
-        link=https://github.com/${is_sh_repo}/releases/latest/download/code.tar.gz
+        asset=code.tar.gz
+        is_sh_latest_ver=$(_wget -qO- "https://api.github.com/repos/${is_sh_repo}/releases/latest?v=$RANDOM" | grep tag_name | grep -E -o 'v([0-9.]+)')
+        [[ $is_sh_latest_ver ]] || err "获取 ${is_core_name} 脚本最新版本失败."
+        link=https://github.com/${is_sh_repo}/releases/download/${is_sh_latest_ver}/${asset}
+        digest=$(get_github_asset_digest "$is_sh_repo" "$is_sh_latest_ver" "$asset")
         name="$is_core_name 脚本"
         tmpfile=$tmpsh
         is_ok=$is_sh_ok
         ;;
     jq)
-        link=https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-$is_arch
+        asset=jq-linux-$is_arch
+        link=https://github.com/jqlang/jq/releases/download/jq-1.7.1/$asset
+        digest=$(get_release_checksum_sha256 "https://github.com/jqlang/jq/releases/download/jq-1.7.1/sha256sum.txt" "$asset" "$tmpdir/jq-sha256sum.txt")
         name="jq"
         tmpfile=$tmpjq
         is_ok=$is_jq_ok
@@ -192,8 +274,9 @@ download() {
 
     [[ $link ]] && {
         msg warn "下载 ${name} > ${link}"
-        if _wget -t 3 -q -c $link -O $tmpfile; then
-            mv -f $tmpfile $is_ok
+        if download_to_file "$link" "$tmpfile"; then
+            verify_sha256 "$tmpfile" "$digest"
+            mv -f "$tmpfile" "$is_ok"
         fi
     }
 }
@@ -283,6 +366,11 @@ pass_args() {
             is_core_ver=v${2//v/}
             shift 2
             ;;
+        --insecure-download)
+            insecure_download=1
+            warn "已启用不安全下载模式: TLS 证书校验被禁用, 但下载文件仍会执行 SHA256 校验."
+            shift 1
+            ;;
         -h | --help)
             show_help
             ;;
@@ -299,7 +387,7 @@ pass_args() {
 
 # exit and remove tmpdir
 exit_and_del_tmpdir() {
-    rm -rf $tmpdir
+    rm -rf "$tmpdir"
     [[ ! $1 ]] && {
         msg err "哦豁.."
         msg err "安装过程出现错误..."
@@ -319,7 +407,7 @@ main() {
     }
 
     # check parameters
-    [[ $# -gt 0 ]] && pass_args $@
+    [[ $# -gt 0 ]] && pass_args "$@"
 
     # show welcome msg
     clear
@@ -332,10 +420,10 @@ main() {
     [[ $is_core_ver ]] && msg warn "${is_core_name} 版本: ${yellow}$is_core_ver${none}"
     [[ $proxy ]] && msg warn "使用代理: ${yellow}$proxy${none}"
     # create tmpdir
-    mkdir -p $tmpdir
+    mkdir -p "$tmpdir"
     # if is_core_file, copy file
     [[ $is_core_file ]] && {
-        cp -f $is_core_file $is_core_ok
+        cp -f "$is_core_file" "$is_core_ok"
         msg warn "${yellow}${is_core_name} 文件使用 > $is_core_file${none}"
     }
     # local dir install sh script
@@ -358,7 +446,11 @@ main() {
         apk add $is_pkg &>/dev/null
         [[ $? == 0 ]] && >$is_pkg_ok
     else
-        install_pkg $is_pkg &
+        install_pkg $is_pkg
+    fi
+    is_wget=$(type -P wget)
+    if type -P update-ca-certificates >/dev/null; then
+        update-ca-certificates &>/dev/null || true
     fi
 
     # jq
@@ -383,8 +475,8 @@ main() {
 
     # test $is_core_file
     if [[ $is_core_file ]]; then
-        mkdir -p $tmpdir/testzip
-        tar zxf $is_core_ok --strip-components 1 -C $tmpdir/testzip &>/dev/null
+        mkdir -p "$tmpdir/testzip"
+        tar zxf "$is_core_ok" --strip-components 1 -C "$tmpdir/testzip" &>/dev/null
         [[ $? != 0 ]] && {
             msg err "${is_core_name} 文件无法通过测试."
             exit_and_del_tmpdir
@@ -402,22 +494,22 @@ main() {
     }
 
     # create sh dir...
-    mkdir -p $is_sh_dir
+    mkdir -p "$is_sh_dir"
 
     # copy sh file or unzip sh zip file.
     if [[ $local_install ]]; then
-        cp -rf $PWD/* $is_sh_dir
+        cp -rf "$PWD"/* "$is_sh_dir"
     else
-        tar zxf $is_sh_ok -C $is_sh_dir
+        tar zxf "$is_sh_ok" -C "$is_sh_dir"
     fi
 
     # create core bin dir
-    mkdir -p $is_core_dir/bin
+    mkdir -p "$is_core_dir/bin"
     # copy core file or unzip core zip file
     if [[ $is_core_file ]]; then
-        cp -rf $tmpdir/testzip/* $is_core_dir/bin
+        cp -rf "$tmpdir/testzip"/* "$is_core_dir/bin"
     else
-        tar zxf $is_core_ok --strip-components 1 -C $is_core_dir/bin
+        tar zxf "$is_core_ok" --strip-components 1 -C "$is_core_dir/bin"
     fi
 
     # add alias
@@ -429,13 +521,13 @@ main() {
     ln -sf $is_sh_dir/$is_core.sh ${is_sh_bin/$is_core/sb}
 
     # jq
-    [[ $jq_not_found ]] && mv -f $is_jq_ok /usr/bin/jq
+    [[ $jq_not_found ]] && install -m 0755 "$is_jq_ok" /usr/bin/jq
 
     # chmod
-    chmod +x $is_core_bin $is_sh_bin /usr/bin/jq ${is_sh_bin/$is_core/sb}
+    chmod +x "$is_core_bin" "$is_sh_bin" /usr/bin/jq "${is_sh_bin/$is_core/sb}"
 
     # create log dir
-    mkdir -p $is_log_dir
+    mkdir -p "$is_log_dir"
 
     # show a tips msg
     msg ok "生成配置文件..."
@@ -446,7 +538,7 @@ main() {
     install_service $is_core &>/dev/null
 
     # create condf dir
-    mkdir -p $is_conf_dir
+    mkdir -p "$is_conf_dir"
 
     load core.sh
     # create a reality config
@@ -458,4 +550,4 @@ main() {
 }
 
 # start.
-main $@
+main "$@"

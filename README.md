@@ -50,7 +50,7 @@
 使用：`sing-box help`
 
 ```
-sing-box script v1.0
+sing-box script v1.17
 Usage: sing-box [options]... [args]...
 
 基本:
