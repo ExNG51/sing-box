@@ -22,6 +22,8 @@ jobs:
       #   run: |
       #     echo not found new version.
       #     exit 1
+      - name: hardening checks
+        run: bash tests/supply-chain-hardening.sh
       - name: tar
         run: tar zcvf code.tar.gz ./*
       - name: release

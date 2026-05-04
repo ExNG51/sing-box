@@ -6,14 +6,25 @@ fail() {
     exit 1
 }
 
-RG_OUTPUT="$(mktemp)"
-trap 'rm -f "$RG_OUTPUT"' EXIT
+MATCH_OUTPUT="$(mktemp)"
+trap 'rm -f "$MATCH_OUTPUT"' EXIT
+
+find_matches() {
+    local pattern="$1"
+    shift
+
+    if command -v rg >/dev/null 2>&1; then
+        rg -n "$pattern" "$@" >"$MATCH_OUTPUT" 2>/dev/null
+    else
+        grep -REn "$pattern" "$@" >"$MATCH_OUTPUT" 2>/dev/null
+    fi
+}
 
 assert_no_match() {
     local pattern="$1"
     local description="$2"
-    if rg -n "$pattern" install.sh src >"$RG_OUTPUT" 2>/dev/null; then
-        cat "$RG_OUTPUT" >&2
+    if find_matches "$pattern" install.sh src; then
+        cat "$MATCH_OUTPUT" >&2
         fail "$description"
     fi
 }
@@ -22,7 +33,7 @@ assert_match() {
     local pattern="$1"
     local file="$2"
     local description="$3"
-    rg -n "$pattern" "$file" >/dev/null || fail "$description"
+    find_matches "$pattern" "$file" || fail "$description"
 }
 
 shopt -s nullglob
@@ -42,5 +53,12 @@ assert_match 'verify_sha256' src/download.sh 'src/download.sh must verify downlo
 assert_match 'get_github_asset_digest' src/download.sh 'src/download.sh must read GitHub release asset digest metadata'
 
 assert_match 'insecure_download' install.sh 'install.sh must keep insecure download behind an explicit opt-in flag'
+
+assert_match 'run: bash tests/supply-chain-hardening.sh' .github/workflows/release.yml 'release workflow must run hardening checks before packaging'
+awk '
+    /run: bash tests\/supply-chain-hardening\.sh/ { check_line = NR }
+    /- name: tar/ { tar_line = NR }
+    END { exit !(check_line && tar_line && check_line < tar_line) }
+' .github/workflows/release.yml || fail 'release workflow hardening checks must run before the tar step'
 
 printf '[PASS] supply-chain hardening checks\n'
