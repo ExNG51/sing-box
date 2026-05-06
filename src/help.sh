@@ -49,7 +49,9 @@ show_help() {
             "   import                                          导入 xray/v2ray 脚本配置\n"
             "管理:"
             "   un, uninstall                                   卸载"
-            "   u, update [core | sh | caddy] [ver]             更新"
+            "   rollback [--dry-run] [--yes]                    回滚最近一次脚本管理的写入"
+            "   u, update [core | sh | caddy] [ver | --latest]  更新; core 默认使用 pinned stable"
+            "   u, update core --core-version [ver]             使用指定 sing-box core 版本更新"
             "   U, update.sh                                    更新脚本"
             "   s, status                                       运行状态"
             "   start, stop, restart [caddy]                    启动, 停止, 重启"
@@ -70,7 +72,10 @@ show_help() {
         for v in "${help_info[@]}"; do
             msg "$v"
         done
-        msg "谨慎使用 del, ddel, 此选项会直接删除配置; 无需确认"
+        msg "Backup: 修改关键文件前会在 $is_core_dir/backups/ 创建本地事务备份。"
+        msg "Rollback: 使用 $is_core rollback 恢复最近一次脚本管理的写入。"
+        msg "Version policy: sing-box core 默认使用 pinned stable; 只有显式 --latest 才追 upstream latest。"
+        msg "谨慎使用 del, ddel; 删除前会写入备份事务，但仍应确认目标配置。"
         msg "反馈问题) $(msg_ul https://github.com/${is_sh_repo}/issues) "
         ;;
 

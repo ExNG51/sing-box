@@ -48,6 +48,20 @@
 安装完成后不会自动创建任何代理协议配置，请进入菜单手动选择需要添加的协议。
 After installation, no proxy protocol is created automatically. Use the menu to add the protocol you need.
 
+## Backup / Rollback / Version policy
+
+Before changing key files, the script creates a local backup transaction under `/etc/sing-box/backups/`.
+Each transaction writes a `manifest.json` and updates `/etc/sing-box/backups/latest` after the manifest is complete.
+
+Use `sb rollback` to restore the latest script-managed change. Use `sb rollback --dry-run` to print the rollback plan without changing files, and `sb rollback --yes` to skip the confirmation prompt.
+
+The script uses a pinned stable sing-box version by default: `v1.13.8`.
+Use `--latest` only if you explicitly want the latest upstream release, because latest may introduce breaking changes.
+User-specified versions such as `bash install.sh -v v1.13.8` or `sb update core --core-version v1.13.8` take priority over the default pin.
+
+Rollback only covers key files managed by this script, including sing-box config files, Caddy config files, service files, and managed binaries.
+Rollback does not roll back system package installation, firewall changes made outside the managed files, `/root/.bashrc` alias edits, or Caddy certificate cache.
+
 # 帮助
 
 使用：`sing-box help`
@@ -95,7 +109,9 @@ Usage: sing-box [options]... [args]...
 
 管理:
    un, uninstall                                   卸载
-   u, update [core | sh | caddy] [ver]             更新
+   rollback [--dry-run] [--yes]                    回滚最近一次脚本管理的写入
+   u, update [core | sh | caddy] [ver | --latest]  更新; core 默认使用 pinned stable
+   u, update core --core-version [ver]             使用指定 sing-box core 版本更新
    U, update.sh                                    更新脚本
    s, status                                       运行状态
    start, stop, restart [caddy]                    启动, 停止, 重启
@@ -112,6 +128,9 @@ Usage: sing-box [options]... [args]...
    [...] [...]                                     兼容绝大多数的 sing-box 命令, 例如: sing-box generate uuid
    h, help                                         显示此帮助界面
 
-谨慎使用 del, ddel, 此选项会直接删除配置; 无需确认
+Backup: 修改关键文件前会在 /etc/sing-box/backups/ 创建本地事务备份。
+Rollback: 使用 sing-box rollback 恢复最近一次脚本管理的写入。
+Version policy: sing-box core 默认使用 pinned stable; 只有显式 --latest 才追 upstream latest。
+谨慎使用 del, ddel; 删除前会写入备份事务，但仍应确认目标配置。
 反馈问题) https://github.com/ExNG51/sing-box/issues
 ```
