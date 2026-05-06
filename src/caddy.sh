@@ -3,7 +3,7 @@ caddy_config() {
     case $1 in
     new)
         mkdir -p $is_caddy_dir $is_caddy_dir/sites $is_caddy_conf
-        cat >$is_caddyfile <<-EOF
+        safe_write_file "$is_caddyfile" <<-EOF
 # don't edit this file #
 # 不要编辑这个文件 #
 # https://caddyserver.com/docs/caddyfile/options
@@ -17,14 +17,14 @@ import $is_caddy_dir/sites/*.conf
 EOF
         ;;
     *ws* | *http*)
-        cat >${is_caddy_site_file} <<<"
+        safe_write_file "${is_caddy_site_file}" "
 ${host}:${is_https_port} {
     reverse_proxy ${path} 127.0.0.1:${port}
     import ${is_caddy_site_file}.add
 }"
         ;;
     *h2*)
-        cat >${is_caddy_site_file} <<<"
+        safe_write_file "${is_caddy_site_file}" "
 ${host}:${is_https_port} {
     reverse_proxy ${path} h2c://127.0.0.1:${port} {
         transport http {
@@ -35,7 +35,7 @@ ${host}:${is_https_port} {
 }"
         ;;
     *grpc*)
-        cat >${is_caddy_site_file} <<<"
+        safe_write_file "${is_caddy_site_file}" "
 ${host}:${is_https_port} {
     reverse_proxy /${path}/* h2c://127.0.0.1:${port}
     import ${is_caddy_site_file}.add
@@ -43,13 +43,13 @@ ${host}:${is_https_port} {
         ;;
     proxy)
 
-        cat >${is_caddy_site_file}.add <<<"
+        safe_write_file "${is_caddy_site_file}.add" "
 reverse_proxy https://$proxy_site {
         header_up Host {upstream_hostport}
 }"
         ;;
     esac
     [[ $1 != "new" && $1 != 'proxy' ]] && {
-        [[ ! -f ${is_caddy_site_file}.add ]] && echo "# custom Caddy directives" >${is_caddy_site_file}.add
+        [[ ! -f ${is_caddy_site_file}.add ]] && safe_write_file "${is_caddy_site_file}.add" "# custom Caddy directives"
     }
 }

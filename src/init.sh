@@ -145,6 +145,8 @@ if [[ -f $is_caddy_bin && -d $is_caddy_dir && $is_caddy_service ]]; then
     fi
 fi
 
+load version.sh
+load backup.sh
 load core.sh
 [[ ! $args ]] && args=main
 main $args

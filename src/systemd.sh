@@ -14,7 +14,8 @@ install_service_systemd() {
     case $1 in
     $is_core)
         is_doc_site=https://sing-box.sagernet.org/
-        cat >/lib/systemd/system/$is_core.service <<<"
+        backup_path_before_write /etc/systemd/system/$is_core.service
+        safe_write_file /lib/systemd/system/$is_core.service "
 [Unit]
 Description=$is_core_name Service
 Documentation=$is_doc_site
@@ -38,7 +39,8 @@ ProtectSystem=full
 WantedBy=multi-user.target"
         ;;
     caddy)
-        cat >/lib/systemd/system/caddy.service <<<"
+        backup_path_before_write /etc/systemd/system/caddy.service
+        safe_write_file /lib/systemd/system/caddy.service "
 #https://github.com/caddyserver/dist/blob/master/init/caddy.service
 [Unit]
 Description=Caddy
@@ -72,7 +74,7 @@ WantedBy=multi-user.target"
 install_service_openrc() {
     case $1 in
     $is_core)
-        cat >/etc/init.d/$is_core <<EOF
+        safe_write_file /etc/init.d/$is_core <<EOF
 #!/sbin/openrc-run
 
 name="$is_core_name"
@@ -92,10 +94,10 @@ depend() {
     after firewall
 }
 EOF
-        chmod +x /etc/init.d/$is_core
+        safe_chmod_path +x /etc/init.d/$is_core
         ;;
     caddy)
-        cat >/etc/init.d/caddy <<EOF
+        safe_write_file /etc/init.d/caddy <<EOF
 #!/sbin/openrc-run
 
 name="Caddy"
@@ -113,7 +115,7 @@ depend() {
     after firewall
 }
 EOF
-        chmod +x /etc/init.d/caddy
+        safe_chmod_path +x /etc/init.d/caddy
         ;;
     esac
 

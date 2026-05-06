@@ -345,7 +345,7 @@ create() {
         # del old file
         [[ $is_config_file ]] && is_no_del_msg=1 && del $is_config_file
         # save json to file
-        cat <<<$is_new_json >$is_json_file
+        safe_write_file "$is_json_file" "$is_new_json"
         if [[ $is_new_install ]]; then
             # config.json
             create config.json
@@ -371,7 +371,7 @@ create() {
         load caddy.sh
         [[ $is_install_caddy ]] && caddy_config new
         [[ ! $(grep "$is_caddy_conf" $is_caddyfile) ]] && {
-            msg "import $is_caddy_conf/*.conf" >>$is_caddyfile
+            safe_append_file "$is_caddyfile" "import $is_caddy_conf/*.conf"
         }
         [[ ! -d $is_caddy_conf ]] && mkdir -p $is_caddy_conf
         caddy_config $2
@@ -388,7 +388,7 @@ create() {
         fi
         is_outbounds='outbounds:[{tag:"direct",type:"direct"}]'
         is_server_config_json=$(jq "{$is_log,$is_dns,$is_ntp$is_outbounds}" <<<{})
-        cat <<<$is_server_config_json >$is_config_json
+        safe_write_file "$is_config_json" "$is_server_config_json"
         manage restart &
         ;;
     esac
@@ -589,7 +589,7 @@ change() {
             if [[ $is_new_private_key == $is_new_public_key ]]; then
                 err "Private key 和 Public key 不能一样."
             fi
-            is_tmp_json=$is_conf_dir/$is_config_file-$uuid
+            is_tmp_json=$(mktemp "${TMPDIR:-/tmp}/sing-box-key-test.XXXXXX")
             cp -f $is_conf_dir/$is_config_file $is_tmp_json
             sed -i s#$is_private_key #$is_new_private_key# $is_tmp_json
             $is_core_bin check -c $is_tmp_json &>/dev/null
@@ -603,7 +603,7 @@ change() {
                 is_key_err=1
                 is_key_err_msg+="Public key 无法通过测试."
             fi
-            rm $is_tmp_json
+            rm -f $is_tmp_json
             [[ $is_key_err ]] && err $is_key_err_msg
             is_private_key=$is_new_private_key
             is_public_key=$is_new_public_key
@@ -655,7 +655,7 @@ del() {
             msg "\n是否删除配置文件?: $is_config_file"
             pause
         fi
-        rm -rf $is_conf_dir/"$is_config_file"
+        safe_remove_path "$is_conf_dir/$is_config_file"
         [[ ! $is_new_json ]] && manage restart &
         [[ ! $is_no_del_msg ]] && _green "\n已删除: $is_config_file\n"
 
@@ -666,7 +666,7 @@ del() {
                 is_del_host=$old_host
             }
             [[ $is_del_host && $host != $old_host && -f $is_caddy_conf/$is_del_host.conf ]] && {
-                rm -rf $is_caddy_conf/$is_del_host.conf $is_caddy_conf/$is_del_host.conf.add
+                safe_remove_path "$is_caddy_conf/$is_del_host.conf" "$is_caddy_conf/$is_del_host.conf.add"
                 [[ ! $is_new_json ]] && manage restart caddy &
             }
         }
@@ -681,6 +681,7 @@ del() {
 
 # uninstall
 uninstall() {
+    local path
     if [[ $is_caddy ]]; then
         is_tmp_list=("卸载 $is_core_name" "卸载 ${is_core_name} & Caddy")
         ask list is_do_uninstall
@@ -689,22 +690,36 @@ uninstall() {
     fi
     manage stop &>/dev/null
     manage disable &>/dev/null
-    rm -rf $is_core_dir $is_log_dir $is_sh_bin ${is_sh_bin/$is_core/sb}
+    backup_standard_managed_paths
+    safe_remove_path "$is_config_json" "$is_core_bin" "$is_sh_bin" "${is_sh_bin/$is_core/sb}" "$is_log_dir"
+    for path in "$is_conf_dir"/*.json; do
+        [[ -e $path || -L $path ]] && safe_remove_path "$path"
+    done
+    for path in "$is_sh_dir"/*; do
+        [[ -e $path || -L $path ]] && safe_remove_path "$path"
+    done
+    rmdir "$is_conf_dir" "$is_core_dir/bin" "$is_sh_dir" "$is_core_dir" "$is_log_dir" 2>/dev/null || true
     if [[ $is_systemd ]]; then
-        rm -f /lib/systemd/system/$is_core.service
+        safe_remove_path "/lib/systemd/system/$is_core.service" "/etc/systemd/system/$is_core.service"
     elif [[ $is_openrc ]]; then
-        rm -f /etc/init.d/$is_core
+        safe_remove_path "/etc/init.d/$is_core"
     fi
     sed -i "/$is_core/d" /root/.bashrc
     # uninstall caddy; 2 is ask result
     if [[ $REPLY == '2' ]]; then
         manage stop caddy &>/dev/null
         manage disable caddy &>/dev/null
+        backup_glob_before_write "$is_caddy_conf/*.conf"
+        backup_glob_before_write "$is_caddy_conf/*.conf.add"
+        for path in "$is_caddy_conf"/*.conf "$is_caddy_conf"/*.conf.add; do
+            [[ -e $path || -L $path ]] && safe_remove_path "$path"
+        done
         if [[ $is_systemd ]]; then
-            rm -rf $is_caddy_dir $is_caddy_bin /lib/systemd/system/caddy.service
+            safe_remove_path "$is_caddyfile" "$is_caddy_bin" "/lib/systemd/system/caddy.service" "/etc/systemd/system/caddy.service"
         elif [[ $is_openrc ]]; then
-            rm -rf $is_caddy_dir $is_caddy_bin /etc/init.d/caddy
+            safe_remove_path "$is_caddyfile" "$is_caddy_bin" "/etc/init.d/caddy"
         fi
+        rmdir "$is_caddy_conf" "$is_caddy_dir/sites" "$is_caddy_dir" 2>/dev/null || true
     fi
     [[ $is_install_sh ]] && return # reinstall
     _green "\n卸载完成!"
@@ -775,6 +790,19 @@ manage() {
             }
         fi
     }
+}
+
+run_with_backup_transaction() {
+    local operation=$1
+    local should_finalize=false
+    local status
+    shift
+
+    begin_backup_transaction_if_needed "$operation" && should_finalize=true
+    "$@"
+    status=$?
+    [[ $should_finalize == true ]] && finalize_backup_transaction
+    return $status
 }
 
 # add a config
@@ -1044,7 +1072,7 @@ add() {
             is_test_json=1
             create server Shadowsocks
             [[ ! $tmp_uuid ]] && get_uuid
-            is_test_json_save=$is_conf_dir/tmp-test-$tmp_uuid
+            is_test_json_save=$(mktemp "${TMPDIR:-/tmp}/sing-box-json-test.XXXXXX")
             cat <<<"$is_new_json" >$is_test_json_save
             $is_core_bin check -c $is_test_json_save &>/dev/null
             if [[ $? != 0 ]]; then
@@ -1533,7 +1561,11 @@ url_qr() {
 
 # update core, sh, caddy
 update() {
-    case $1 in
+    is_update_target=$1
+    shift || true
+    unset is_new_ver is_update_backup_finalize
+
+    case $is_update_target in
     1 | core | $is_core)
         is_update_name=core
         is_show_name=$is_core_name
@@ -1554,27 +1586,46 @@ update() {
         is_update_repo=$is_caddy_repo
         ;;
     *)
-        err "无法识别 ($1), 请使用: $is_core update [core | sh | caddy] [ver]"
+        err "无法识别 ($is_update_target), 请使用: $is_core update [core | sh | caddy] [ver | --latest]"
         ;;
     esac
-    [[ $2 ]] && is_new_ver=v${2#v}
-    [[ $is_run_ver == $is_new_ver ]] && {
-        msg "\n自定义版本和当前 $is_show_name 版本一样, 无需更新.\n"
-        exit
-    }
     load download.sh
-    if [[ $is_new_ver ]]; then
-        msg "\n使用自定义版本更新 $is_show_name: $(_green $is_new_ver)\n"
-    else
-        get_latest_version $is_update_name
-        [[ $is_run_ver == $latest_ver ]] && {
-            msg "\n$is_show_name 当前已经是最新版本了.\n"
+
+    if [[ $is_update_name == core ]]; then
+        parse_core_version_policy_args "$@" || return 1
+        is_new_ver=$(resolve_core_version_policy "$VERSION_POLICY_REQUESTED_VERSION" "$VERSION_POLICY_USE_LATEST") || return 1
+        [[ $is_run_ver == $is_new_ver ]] && {
+            msg "\n$is_show_name 当前已经是目标版本 ($is_new_ver), 无需更新.\n"
             exit
         }
-        msg "\n发现 $is_show_name 新版本: $(_green $latest_ver)\n"
-        is_new_ver=$latest_ver
+        if [[ $VERSION_POLICY_REQUESTED_VERSION ]]; then
+            msg "\n使用自定义版本更新 $is_show_name: $(_green $is_new_ver)\n"
+        elif [[ $VERSION_POLICY_USE_LATEST == true ]]; then
+            msg "\n发现 $is_show_name latest 版本: $(_green $is_new_ver)\n"
+        else
+            msg "\n使用 pinned stable 版本更新 $is_show_name: $(_green $is_new_ver)\n"
+        fi
+    else
+        [[ $1 ]] && is_new_ver=v${1#v}
+        [[ $is_run_ver == $is_new_ver ]] && {
+            msg "\n自定义版本和当前 $is_show_name 版本一样, 无需更新.\n"
+            exit
+        }
+        if [[ $is_new_ver ]]; then
+            msg "\n使用自定义版本更新 $is_show_name: $(_green $is_new_ver)\n"
+        else
+            get_latest_version $is_update_name
+            [[ $is_run_ver == $latest_ver ]] && {
+                msg "\n$is_show_name 当前已经是最新版本了.\n"
+                exit
+            }
+            msg "\n发现 $is_show_name 新版本: $(_green $latest_ver)\n"
+            is_new_ver=$latest_ver
+        fi
     fi
+    begin_backup_transaction_if_needed "update-$is_update_name" && is_update_backup_finalize=1
     download $is_update_name $is_new_ver
+    [[ $is_update_backup_finalize ]] && finalize_backup_transaction && unset is_update_backup_finalize
     msg "更新成功, 当前 $is_show_name 版本: $(_green $is_new_ver)\n"
     msg "$(_green 请查看更新说明: https://github.com/$is_update_repo/releases/tag/$is_new_ver)\n"
     [[ $is_update_name != 'sh' ]] && manage restart $is_update_name &
@@ -1588,16 +1639,16 @@ is_main_menu() {
     ask mainmenu
     case $REPLY in
     1)
-        add
+        run_with_backup_transaction add add
         ;;
     2)
-        change
+        run_with_backup_transaction change change
         ;;
     3)
         info
         ;;
     4)
-        del
+        run_with_backup_transaction delete del
         ;;
     5)
         ask list is_do_manage "启动 停止 重启"
@@ -1611,7 +1662,7 @@ is_main_menu() {
         update $REPLY
         ;;
     7)
-        uninstall
+        run_with_backup_transaction uninstall uninstall
         ;;
     8)
         msg
@@ -1633,7 +1684,7 @@ is_main_menu() {
             get test-run
             ;;
         4)
-            get reinstall
+            run_with_backup_transaction reinstall get reinstall
             ;;
         5)
             load dns.sh
@@ -1654,7 +1705,11 @@ main() {
     a | add | gen | no-auto-tls)
         [[ $1 == 'gen' ]] && is_gen=1
         [[ $1 == 'no-auto-tls' ]] && is_no_auto_tls=1
-        add ${@:2}
+        if [[ $is_gen ]]; then
+            add ${@:2}
+        else
+            run_with_backup_transaction add add ${@:2}
+        fi
         ;;
     bin | pbk | check | completion | format | generate | geoip | geosite | merge | rule-set | run | tools)
         is_run_command=$1
@@ -1670,15 +1725,16 @@ main() {
         _try_enable_bbr
         ;;
     c | config | change)
-        change ${@:2}
+        run_with_backup_transaction change change ${@:2}
         ;;
     # client | genc)
     #     create client $2
     #     ;;
     d | del | rm)
-        del $2
+        run_with_backup_transaction delete del $2
         ;;
     dd | ddel | fix | fix-all)
+        begin_backup_transaction_if_needed "$1" && is_bulk_backup_finalize=1
         case $1 in
         fix)
             [[ $2 ]] && {
@@ -1686,6 +1742,7 @@ main() {
             } || {
                 is_change_id=full && change
             }
+            [[ $is_bulk_backup_finalize ]] && finalize_backup_transaction && unset is_bulk_backup_finalize
             return
             ;;
         fix-all)
@@ -1711,6 +1768,7 @@ main() {
         is_dont_auto_exit=
         manage restart &
         [[ $is_del_host ]] && manage restart caddy &
+        [[ $is_bulk_backup_finalize ]] && finalize_backup_transaction && unset is_bulk_backup_finalize
         ;;
     dns)
         load dns.sh
@@ -1722,12 +1780,12 @@ main() {
         warn "如果需要复制; 请把 *uuid, *password, *host, *key 的值改写, 以避免泄露."
         ;;
     fix-config.json)
-        create config.json
+        run_with_backup_transaction fix-config create config.json
         ;;
     fix-caddyfile)
         if [[ $is_caddy ]]; then
             load caddy.sh
-            caddy_config new
+            run_with_backup_transaction fix-caddy caddy_config new
             manage restart caddy &
             _green "\nfix 完成.\n"
         else
@@ -1752,17 +1810,20 @@ main() {
         url_qr $@
         ;;
     un | uninstall)
-        uninstall
+        run_with_backup_transaction uninstall uninstall
+        ;;
+    rollback)
+        rollback_latest_backup ${@:2}
         ;;
     u | up | update | U | update.sh)
         is_update_name=$2
-        is_update_ver=$3
         [[ ! $is_update_name ]] && is_update_name=core
         [[ $1 == 'U' || $1 == 'update.sh' ]] && {
             is_update_name=sh
-            is_update_ver=
+            update "$is_update_name"
+            return
         }
-        update $is_update_name $is_update_ver
+        update "$is_update_name" "${@:3}"
         ;;
     ssss | ss2022)
         get $@
