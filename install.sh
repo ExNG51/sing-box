@@ -6,60 +6,43 @@ is_sh_owner=ExNG51
 # bash fonts colors
 red='\e[31m'
 yellow='\e[33m'
+# Used by sourced scripts.
+# shellcheck disable=SC2034
 gray='\e[90m'
 green='\e[92m'
 blue='\e[94m'
 magenta='\e[95m'
 cyan='\e[96m'
 none='\e[0m'
-_red() { echo -e ${red}$@${none}; }
-_blue() { echo -e ${blue}$@${none}; }
-_cyan() { echo -e ${cyan}$@${none}; }
-_green() { echo -e ${green}$@${none}; }
-_yellow() { echo -e ${yellow}$@${none}; }
-_magenta() { echo -e ${magenta}$@${none}; }
-_red_bg() { echo -e "\e[41m$@${none}"; }
+# Used by sourced scripts.
+# shellcheck disable=SC2329
+_red() { echo -e "${red}$*${none}"; }
+# shellcheck disable=SC2329
+_blue() { echo -e "${blue}$*${none}"; }
+# shellcheck disable=SC2329
+_cyan() { echo -e "${cyan}$*${none}"; }
+# shellcheck disable=SC2329
+_green() { echo -e "${green}$*${none}"; }
+# shellcheck disable=SC2329
+_yellow() { echo -e "${yellow}$*${none}"; }
+# shellcheck disable=SC2329
+_magenta() { echo -e "${magenta}$*${none}"; }
+_red_bg() { echo -e "\e[41m$*${none}"; }
 
 is_err=$(_red_bg 错误!)
 is_warn=$(_red_bg 警告!)
 
 err() {
-    echo -e "\n$is_err $@\n" && exit 1
+    echo -e "\n$is_err $*\n" && exit 1
 }
 
 warn() {
-    echo -e "\n$is_warn $@\n"
+    echo -e "\n$is_warn $*\n"
 }
 
-# root
-[[ $EUID != 0 ]] && err "当前非 ${yellow}ROOT用户.${none}"
-
-# apt-get, yum, zypper or apk
-cmd=$(type -P apt-get || type -P yum || type -P zypper || type -P apk)
-[[ ! $cmd ]] && err "此脚本仅支持 ${yellow}(Ubuntu or Debian or CentOS or SUSE or Alpine)${none}."
-
-# systemd or openrc
-is_systemd=$(type -P systemctl)
-is_openrc=$(type -P rc-service)
-[[ ! $is_systemd && ! $is_openrc ]] && {
-    err "此系统缺少 ${yellow}(systemctl 或 rc-service)${none}, 请安装 systemd 或确认 OpenRC 已启用."
-}
-
-# wget installed or none
-is_wget=$(type -P wget)
-
-# x64
-case $(uname -m) in
-amd64 | x86_64)
-    is_arch=amd64
-    ;;
-*aarch64* | *armv8*)
-    is_arch=arm64
-    ;;
-*)
-    err "此脚本仅支持 64 位系统..."
-    ;;
-esac
+IS_DRY_RUN=false
+IS_ASSUME_YES=false
+PLAN_ITEMS=()
 
 is_core=sing-box
 is_core_name=sing-box
@@ -72,8 +55,6 @@ is_sh_bin=/usr/local/bin/$is_core
 is_sh_dir=$is_core_dir/sh
 is_sh_repo=$is_sh_owner/$is_core
 is_pkg="wget tar bash ca-certificates coreutils"
-# Alpine: gcompat provides glibc compatibility for prebuilt binaries
-[[ $cmd =~ apk ]] && is_pkg="$is_pkg gcompat jq"
 is_config_json=$is_core_dir/config.json
 tmp_var_lists=(
     tmpcore
@@ -84,19 +65,86 @@ tmp_var_lists=(
     is_jq_ok
     is_pkg_ok
 )
+tmpdir=
+tmpcore=
+tmpsh=
+tmpjq=
+is_core_ok=
+is_sh_ok=
+is_jq_ok=
+is_pkg_ok=
 
-# tmp dir
-tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/sing-box-install.XXXXXX") || err "创建临时目录失败."
-trap 'rm -rf "$tmpdir"' EXIT INT TERM
+prepare_tmpdir() {
+    [[ $tmpdir ]] && return
+    tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/sing-box-install.XXXXXX") || err "创建临时目录失败."
+    trap 'rm -rf "$tmpdir"' EXIT INT TERM
+    for i in "${tmp_var_lists[@]}"; do
+        export "$i=$tmpdir/$i"
+    done
+}
 
-# set up var
-for i in "${tmp_var_lists[@]}"; do
-    export "$i=$tmpdir/$i"
-done
+detect_os_name() {
+    local os_release=${OS_RELEASE_FILE:-/etc/os-release}
+    if [[ -r $os_release ]]; then
+        # shellcheck disable=SC1090
+        . "$os_release"
+        is_os_name=${PRETTY_NAME:-${NAME:-Unknown}}
+    else
+        is_os_name=$(uname -s)
+    fi
+}
+
+detect_install_environment() {
+    detect_os_name
+
+    cmd=$(type -P apt-get || type -P yum || type -P zypper || type -P apk)
+    [[ ! $cmd ]] && err "此脚本仅支持 ${yellow}(Ubuntu or Debian or CentOS or SUSE or Alpine)${none}."
+    is_package_manager=$(basename "$cmd")
+
+    is_systemd=$(type -P systemctl)
+    is_openrc=$(type -P rc-service)
+    [[ ! $is_systemd && ! $is_openrc ]] && {
+        err "此系统缺少 ${yellow}(systemctl 或 rc-service)${none}, 请安装 systemd 或确认 OpenRC 已启用."
+    }
+    if [[ $is_systemd ]]; then
+        is_init_system=systemd
+    else
+        is_init_system=openrc
+    fi
+
+    is_wget=$(type -P wget)
+
+    case $(uname -m) in
+    amd64 | x86_64)
+        is_arch=amd64
+        ;;
+    *aarch64* | *armv8*)
+        is_arch=arm64
+        ;;
+    *)
+        err "此脚本仅支持 64 位系统..."
+        ;;
+    esac
+
+    is_pkg="wget tar bash ca-certificates coreutils"
+    # Alpine: gcompat provides glibc compatibility for prebuilt binaries
+    [[ $cmd =~ apk ]] && is_pkg="$is_pkg gcompat jq"
+}
+
+ensure_root_for_execution() {
+    [[ $EUID != 0 ]] && err "当前非 ${yellow}ROOT用户.${none}"
+}
+
+ensure_not_installed() {
+    [[ -f $is_sh_bin && -d $is_core_dir/bin && -d $is_sh_dir && -d $is_conf_dir ]] && {
+        err "检测到脚本已安装, 如需重装请使用${green} ${is_core} reinstall ${none}命令."
+    }
+}
 
 # load bash script.
 load() {
-    . $is_sh_dir/src/$1
+    # shellcheck disable=SC1090
+    . "$is_sh_dir/src/$1"
 }
 
 # wget wrapper. TLS certificate verification is enabled by default.
@@ -197,13 +245,143 @@ msg() {
     echo -e "${color}$(date +'%T')${none}) ${2}"
 }
 
+add_plan_item() {
+    local section=$1
+    shift
+    PLAN_ITEMS+=("${section}|$*")
+}
+
+print_plan_section() {
+    local section=$1
+    local item item_section item_text
+    echo "$section:"
+    for item in "${PLAN_ITEMS[@]}"; do
+        item_section=${item%%|*}
+        item_text=${item#*|}
+        [[ $item_section == "$section" ]] && echo "- $item_text"
+    done
+    echo
+}
+
+build_install_plan() {
+    PLAN_ITEMS=()
+
+    add_plan_item "System" "OS: ${is_os_name:-Unknown}"
+    add_plan_item "System" "Arch: ${is_arch:-unknown}"
+    add_plan_item "System" "Init: ${is_init_system:-unknown}"
+    add_plan_item "System" "Package manager: ${is_package_manager:-unknown}"
+
+    if [[ $is_core_file ]]; then
+        add_plan_item "Downloads" "sing-box core package from local file: $is_core_file"
+    elif [[ $is_core_ver ]]; then
+        add_plan_item "Downloads" "sing-box core package from GitHub release $is_core_ver: https://github.com/${is_core_repo}/releases"
+    else
+        add_plan_item "Downloads" "sing-box core package from GitHub latest release: https://github.com/${is_core_repo}/releases"
+        add_plan_item "Downloads" "release version will be resolved during execution"
+    fi
+    if [[ $local_install ]]; then
+        add_plan_item "Downloads" "management script from local directory: $PWD"
+    else
+        add_plan_item "Downloads" "management script package from GitHub release: https://github.com/${is_sh_repo}/releases"
+    fi
+    add_plan_item "Downloads" "jq binary from GitHub release if jq is still unavailable after dependency installation"
+    add_plan_item "Downloads" "checksum / digest source: GitHub release asset digest and jq sha256sum.txt"
+    add_plan_item "Downloads" "download source: HTTPS-only GitHub release URLs"
+    add_plan_item "Downloads" "temp directory: ${tmpdir:-${TMPDIR:-/tmp}/sing-box-install.xxxxxx}"
+
+    add_plan_item "Files to write" "$is_core_dir/"
+    add_plan_item "Files to write" "$is_core_dir/bin/$is_core"
+    add_plan_item "Files to write" "$is_sh_dir/"
+    add_plan_item "Files to write" "$is_conf_dir/"
+    add_plan_item "Files to write" "$is_config_json"
+    add_plan_item "Files to write" "$is_log_dir/"
+    add_plan_item "Files to write" "$is_sh_bin"
+    add_plan_item "Files to write" "${is_sh_bin/$is_core/sb}"
+    add_plan_item "Files to write" "/root/.bashrc"
+    add_plan_item "Files to write" "/usr/bin/jq when jq is not already installed"
+    if [[ $is_init_system == systemd ]]; then
+        add_plan_item "Files to write" "/etc/systemd/system/$is_core.service"
+        add_plan_item "Files to write" "/lib/systemd/system/$is_core.service"
+        add_plan_item "Services" "create: $is_core.service"
+        add_plan_item "Services" "enable: $is_core.service"
+        add_plan_item "Services" "start: $is_core.service"
+    else
+        add_plan_item "Files to write" "/etc/init.d/$is_core"
+        add_plan_item "Services" "create: /etc/init.d/$is_core"
+        add_plan_item "Services" "add to default runlevel"
+        add_plan_item "Services" "start: $is_core"
+    fi
+
+    add_plan_item "Ports" "none by default"
+    add_plan_item "Ports" "protocol ports will be opened only after user explicitly adds an inbound from the menu"
+}
+
+print_install_plan() {
+    echo "Install Plan"
+    echo
+    print_plan_section "System"
+    print_plan_section "Downloads"
+    print_plan_section "Files to write"
+    print_plan_section "Services"
+    print_plan_section "Ports"
+}
+
+confirm_install_plan() {
+    local reply
+    [[ $IS_ASSUME_YES == true ]] && return 0
+    printf "Continue with this installation plan? [y/N] "
+    read -r reply || reply=
+    case $reply in
+    y | Y)
+        return 0
+        ;;
+    *)
+        msg warn "Installation cancelled."
+        exit_and_del_tmpdir ok
+        ;;
+    esac
+}
+
+run_or_plan() {
+    local description=$1
+    shift
+    if [[ $IS_DRY_RUN == true ]]; then
+        add_plan_item "Execution" "$description"
+        return 0
+    fi
+    "$@"
+}
+
+write_or_plan_file() {
+    local path=$1
+    shift
+    if [[ $IS_DRY_RUN == true ]]; then
+        add_plan_item "Files to write" "$path"
+        return 0
+    fi
+    "$@"
+}
+
+download_or_plan_asset() {
+    local description=$1
+    shift
+    if [[ $IS_DRY_RUN == true ]]; then
+        add_plan_item "Downloads" "$description"
+        return 0
+    fi
+    download "$@"
+}
+
 # show help msg
 show_help() {
-    echo -e "Usage: $0 [-f xxx | -l | -p xxx | -v xxx | -h]"
+    echo -e "Usage: $0 [-f xxx | -l | -p xxx | -v xxx | --dry-run | --plan | --yes | -h]"
     echo -e "  -f, --core-file <path>          自定义 $is_core_name 文件路径, e.g., -f /root/$is_core-linux-amd64.tar.gz"
     echo -e "  -l, --local-install             本地获取安装脚本, 使用当前目录"
     echo -e "  -p, --proxy <addr>              使用代理下载, e.g., -p http://127.0.0.1:2333"
     echo -e "  -v, --core-version <ver>        自定义 $is_core_name 版本, e.g., -v v1.8.13"
+    echo -e "      --dry-run                   仅输出安装计划, 不修改系统"
+    echo -e "      --plan                      等同于 --dry-run"
+    echo -e "      --yes                       跳过安装计划确认, 适用于自动化"
     echo -e "      --insecure-download         禁用 TLS 证书校验下载, 仅用于受限网络; 仍会校验 SHA256"
     echo -e "  -h, --help                      显示此帮助界面\n"
 
@@ -213,30 +391,33 @@ show_help() {
 # install dependent pkg
 install_pkg() {
     cmd_not_found=
-    for i in $*; do
-        [[ ! $(type -P $i) ]] && cmd_not_found="$cmd_not_found,$i"
+    for i in "$@"; do
+        [[ ! $(type -P "$i") ]] && cmd_not_found="$cmd_not_found,$i"
     done
     if [[ $cmd_not_found ]]; then
-        pkg=$(echo $cmd_not_found | sed 's/,/ /g')
+        pkg=${cmd_not_found//,/ }
         msg warn "安装依赖包 >${pkg}"
         if [[ $cmd =~ apk ]]; then
             apk update &>/dev/null
-            apk add $pkg &>/dev/null
+            # shellcheck disable=SC2086
+            apk add $pkg &>/dev/null && : >"$is_pkg_ok"
         else
-            $cmd install -y $pkg &>/dev/null
-            if [[ $? != 0 ]]; then
+            # shellcheck disable=SC2086
+            if ! $cmd install -y $pkg &>/dev/null; then
                 [[ $cmd =~ yum ]] && yum install epel-release -y &>/dev/null
                 if [[ $cmd =~ zypper ]]; then
                     $cmd --non-interactive refresh &>/dev/null
                 else
                     $cmd update -y &>/dev/null
                 fi
-                $cmd install -y $pkg &>/dev/null
+                # shellcheck disable=SC2086
+                $cmd install -y $pkg &>/dev/null && : >"$is_pkg_ok"
+            else
+                : >"$is_pkg_ok"
             fi
         fi
-        [[ $? == 0 ]] && >$is_pkg_ok
     else
-        >$is_pkg_ok
+        : >"$is_pkg_ok"
     fi
 }
 
@@ -371,11 +552,19 @@ pass_args() {
             warn "已启用不安全下载模式: TLS 证书校验被禁用, 但下载文件仍会执行 SHA256 校验."
             shift 1
             ;;
+        --dry-run | --plan)
+            IS_DRY_RUN=true
+            shift 1
+            ;;
+        --yes)
+            IS_ASSUME_YES=true
+            shift 1
+            ;;
         -h | --help)
             show_help
             ;;
         *)
-            echo -e "\n${is_err} ($@) 为未知参数...\n"
+            echo -e "\n${is_err} ($*) 为未知参数...\n"
             show_help
             ;;
         esac
@@ -387,19 +576,20 @@ pass_args() {
 
 # exit and remove tmpdir
 exit_and_del_tmpdir() {
-    rm -rf "$tmpdir"
-    [[ ! $1 ]] && {
+    [[ ${tmpdir:-} ]] && rm -rf "$tmpdir"
+    [[ ! ${1:-} ]] && {
         msg err "哦豁.."
         msg err "安装过程出现错误..."
         echo -e "反馈问题) https://github.com/${is_sh_repo}/issues"
         echo
         exit 1
     }
-    exit
+    exit 0
 }
 
 show_install_complete() {
     msg ok "$is_core_name installed successfully."
+    msg ok "No inbound protocol has been created by default."
     msg ok "No proxy protocol has been created automatically."
     msg ok "Use the menu to add AnyTLS, Reality, TUIC, Hysteria2, Trojan, Shadowsocks, VMess, or other supported protocols."
     msg ok "$is_core_name 已安装完成。"
@@ -415,54 +605,40 @@ open_main_menu_if_interactive() {
     fi
 }
 
-# main
-main() {
-
-    # check old version
-    [[ -f $is_sh_bin && -d $is_core_dir/bin && -d $is_sh_dir && -d $is_conf_dir ]] && {
-        err "检测到脚本已安装, 如需重装请使用${green} ${is_core} reinstall ${none}命令."
-    }
-
-    # check parameters
-    [[ $# -gt 0 ]] && pass_args "$@"
-
-    # show welcome msg
-    clear
-    echo
-    echo "........... $is_core_name script .........."
-    echo
-
+execute_install() {
     # start installing...
     msg warn "开始安装..."
     [[ $is_core_ver ]] && msg warn "${is_core_name} 版本: ${yellow}$is_core_ver${none}"
     [[ $proxy ]] && msg warn "使用代理: ${yellow}$proxy${none}"
     # create tmpdir
-    mkdir -p "$tmpdir"
+    run_or_plan "create temp directory $tmpdir" mkdir -p "$tmpdir"
     # if is_core_file, copy file
     [[ $is_core_file ]] && {
-        cp -f "$is_core_file" "$is_core_ok"
+        write_or_plan_file "$is_core_ok" cp -f "$is_core_file" "$is_core_ok"
         msg warn "${yellow}${is_core_name} 文件使用 > $is_core_file${none}"
     }
     # local dir install sh script
     [[ $local_install ]] && {
-        >$is_sh_ok
+        : >"$is_sh_ok"
         msg warn "${yellow}本地获取安装脚本 > $PWD ${none}"
     }
 
     if [[ $is_systemd ]]; then
-        timedatectl set-ntp true &>/dev/null
-        [[ $? != 0 ]] && {
+        if ! timedatectl set-ntp true &>/dev/null; then
+            # Used by src/core.sh after it is sourced.
+            # shellcheck disable=SC2034
             is_ntp_on=1
-        }
+        fi
     fi
 
     # install dependent pkg
     if [[ $cmd =~ apk ]]; then
         # Alpine: force install full versions to replace BusyBox applets
         apk update &>/dev/null
-        apk add $is_pkg &>/dev/null
-        [[ $? == 0 ]] && >$is_pkg_ok
+        # shellcheck disable=SC2086
+        apk add $is_pkg &>/dev/null && : >"$is_pkg_ok"
     else
+        # shellcheck disable=SC2086
         install_pkg $is_pkg
     fi
     is_wget=$(type -P wget)
@@ -472,15 +648,15 @@ main() {
 
     # jq
     if [[ $(type -P jq) ]]; then
-        >$is_jq_ok
+        : >"$is_jq_ok"
     else
         jq_not_found=1
     fi
     # if wget installed. download core, sh, jq, get ip
     [[ $is_wget ]] && {
-        [[ ! $is_core_file ]] && download core &
-        [[ ! $local_install ]] && download sh &
-        [[ $jq_not_found ]] && download jq &
+        [[ ! $is_core_file ]] && download_or_plan_asset "sing-box core package" core &
+        [[ ! $local_install ]] && download_or_plan_asset "management script package" sh &
+        [[ $jq_not_found ]] && download_or_plan_asset "jq binary" jq &
         get_ip
     }
 
@@ -493,11 +669,10 @@ main() {
     # test $is_core_file
     if [[ $is_core_file ]]; then
         mkdir -p "$tmpdir/testzip"
-        tar zxf "$is_core_ok" --strip-components 1 -C "$tmpdir/testzip" &>/dev/null
-        [[ $? != 0 ]] && {
+        if ! tar zxf "$is_core_ok" --strip-components 1 -C "$tmpdir/testzip" &>/dev/null; then
             msg err "${is_core_name} 文件无法通过测试."
             exit_and_del_tmpdir
-        }
+        fi
         [[ ! -f $tmpdir/testzip/$is_core ]] && {
             msg err "${is_core_name} 文件无法通过测试."
             exit_and_del_tmpdir
@@ -511,22 +686,22 @@ main() {
     }
 
     # create sh dir...
-    mkdir -p "$is_sh_dir"
+    write_or_plan_file "$is_sh_dir/" mkdir -p "$is_sh_dir"
 
     # copy sh file or unzip sh zip file.
     if [[ $local_install ]]; then
-        cp -rf "$PWD"/* "$is_sh_dir"
+        write_or_plan_file "$is_sh_dir/" cp -rf "$PWD"/* "$is_sh_dir"
     else
-        tar zxf "$is_sh_ok" -C "$is_sh_dir"
+        write_or_plan_file "$is_sh_dir/" tar zxf "$is_sh_ok" -C "$is_sh_dir"
     fi
 
     # create core bin dir
-    mkdir -p "$is_core_dir/bin"
+    write_or_plan_file "$is_core_dir/bin/" mkdir -p "$is_core_dir/bin"
     # copy core file or unzip core zip file
     if [[ $is_core_file ]]; then
-        cp -rf "$tmpdir/testzip"/* "$is_core_dir/bin"
+        write_or_plan_file "$is_core_dir/bin/$is_core" cp -rf "$tmpdir/testzip"/* "$is_core_dir/bin"
     else
-        tar zxf "$is_core_ok" --strip-components 1 -C "$is_core_dir/bin"
+        write_or_plan_file "$is_core_dir/bin/$is_core" tar zxf "$is_core_ok" --strip-components 1 -C "$is_core_dir/bin"
     fi
 
     # add alias
@@ -534,23 +709,25 @@ main() {
     echo "alias $is_core=$is_sh_bin" >>/root/.bashrc
 
     # core command
-    ln -sf $is_sh_dir/$is_core.sh $is_sh_bin
-    ln -sf $is_sh_dir/$is_core.sh ${is_sh_bin/$is_core/sb}
+    write_or_plan_file "$is_sh_bin" ln -sf $is_sh_dir/$is_core.sh $is_sh_bin
+    write_or_plan_file "${is_sh_bin/$is_core/sb}" ln -sf $is_sh_dir/$is_core.sh ${is_sh_bin/$is_core/sb}
 
     # jq
-    [[ $jq_not_found ]] && install -m 0755 "$is_jq_ok" /usr/bin/jq
+    [[ $jq_not_found ]] && write_or_plan_file "/usr/bin/jq" install -m 0755 "$is_jq_ok" /usr/bin/jq
 
     # chmod
     chmod +x "$is_core_bin" "$is_sh_bin" /usr/bin/jq "${is_sh_bin/$is_core/sb}"
 
     # create log dir
-    mkdir -p "$is_log_dir"
+    write_or_plan_file "$is_log_dir/" mkdir -p "$is_log_dir"
 
     # show a tips msg
     msg ok "生成配置文件..."
 
     # create service
     load systemd.sh
+    # Used by src/core.sh after it is sourced.
+    # shellcheck disable=SC2034
     is_new_install=1
     install_service $is_core &>/dev/null
 
@@ -566,6 +743,30 @@ main() {
     open_main_menu_if_interactive
     # remove tmp dir and exit.
     exit_and_del_tmpdir ok
+}
+
+# main
+main() {
+    # check parameters
+    [[ $# -gt 0 ]] && pass_args "$@"
+
+    detect_install_environment
+    build_install_plan
+
+    # show welcome msg
+    [[ -t 1 ]] && clear
+    echo
+    echo "........... $is_core_name script .........."
+    echo
+    print_install_plan
+
+    [[ $IS_DRY_RUN == true ]] && exit_and_del_tmpdir ok
+
+    confirm_install_plan
+    ensure_root_for_execution
+    ensure_not_installed
+    prepare_tmpdir
+    execute_install
 }
 
 # start.
