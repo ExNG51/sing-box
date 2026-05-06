@@ -73,6 +73,7 @@ is_core_ok=
 is_sh_ok=
 is_jq_ok=
 is_pkg_ok=
+is_install_script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || pwd)
 
 prepare_tmpdir() {
     [[ $tmpdir ]] && return
@@ -146,6 +147,69 @@ load() {
     # shellcheck disable=SC1090
     . "$is_sh_dir/src/$1"
 }
+
+load_install_support_script() {
+    local script=$1
+    local support_dir
+    if [[ -f $PWD/src/$script ]]; then
+        # shellcheck disable=SC1090
+        . "$PWD/src/$script"
+        return
+    fi
+    if [[ -n ${is_sh_ok:-} && -f $is_sh_ok ]]; then
+        support_dir=$tmpdir/install-support
+        mkdir -p "$support_dir"
+        tar zxf "$is_sh_ok" -C "$support_dir" "src/$script" 2>/dev/null || true
+        if [[ -f $support_dir/src/$script ]]; then
+            # shellcheck disable=SC1090
+            . "$support_dir/src/$script"
+            return
+        fi
+    fi
+    err "无法加载安装支持脚本: src/$script"
+}
+
+ensure_backup_functions_loaded() {
+    type safe_write_file >/dev/null 2>&1 && return
+    load_install_support_script backup.sh
+}
+
+load_install_version_policy() {
+    if [[ -f $is_install_script_dir/src/version.sh ]]; then
+        # shellcheck disable=SC1090
+        . "$is_install_script_dir/src/version.sh"
+    elif [[ -f $PWD/src/version.sh ]]; then
+        # shellcheck disable=SC1090
+        . "$PWD/src/version.sh"
+    else
+        DEFAULT_SING_BOX_STABLE_VERSION=${DEFAULT_SING_BOX_STABLE_VERSION:-v1.13.8}
+        IS_USE_LATEST_VERSION=${IS_USE_LATEST_VERSION:-false}
+        IS_USER_CORE_VERSION_SPECIFIED=${IS_USER_CORE_VERSION_SPECIFIED:-false}
+    fi
+}
+
+install_normalize_core_version() {
+    if type normalize_core_version >/dev/null 2>&1; then
+        normalize_core_version "$1"
+    else
+        printf 'v%s' "${1#v}"
+    fi
+}
+
+apply_install_core_version_policy() {
+    [[ $is_core_file ]] && return
+    if [[ $IS_USER_CORE_VERSION_SPECIFIED == true ]]; then
+        is_core_ver=$(install_normalize_core_version "$is_core_ver")
+        echo "Using user-specified sing-box version: $is_core_ver"
+    elif [[ $IS_USE_LATEST_VERSION == true ]]; then
+        echo "Using latest sing-box release. This may introduce breaking changes."
+    else
+        is_core_ver=$DEFAULT_SING_BOX_STABLE_VERSION
+        echo "Using pinned stable sing-box version: $is_core_ver"
+    fi
+}
+
+load_install_version_policy
 
 # wget wrapper. TLS certificate verification is enabled by default.
 _wget() {
@@ -273,11 +337,13 @@ build_install_plan() {
 
     if [[ $is_core_file ]]; then
         add_plan_item "Downloads" "sing-box core package from local file: $is_core_file"
+    elif [[ ${IS_USE_LATEST_VERSION:-false} == true ]]; then
+        add_plan_item "Downloads" "sing-box core package from GitHub latest release: https://github.com/${is_core_repo}/releases"
+        add_plan_item "Downloads" "release version will be resolved during execution because --latest was specified"
     elif [[ $is_core_ver ]]; then
         add_plan_item "Downloads" "sing-box core package from GitHub release $is_core_ver: https://github.com/${is_core_repo}/releases"
     else
-        add_plan_item "Downloads" "sing-box core package from GitHub latest release: https://github.com/${is_core_repo}/releases"
-        add_plan_item "Downloads" "release version will be resolved during execution"
+        add_plan_item "Downloads" "sing-box core package from pinned stable release $DEFAULT_SING_BOX_STABLE_VERSION: https://github.com/${is_core_repo}/releases"
     fi
     if [[ $local_install ]]; then
         add_plan_item "Downloads" "management script from local directory: $PWD"
@@ -374,11 +440,12 @@ download_or_plan_asset() {
 
 # show help msg
 show_help() {
-    echo -e "Usage: $0 [-f xxx | -l | -p xxx | -v xxx | --dry-run | --plan | --yes | -h]"
+    echo -e "Usage: $0 [-f xxx | -l | -p xxx | -v xxx | --latest | --dry-run | --plan | --yes | -h]"
     echo -e "  -f, --core-file <path>          自定义 $is_core_name 文件路径, e.g., -f /root/$is_core-linux-amd64.tar.gz"
     echo -e "  -l, --local-install             本地获取安装脚本, 使用当前目录"
     echo -e "  -p, --proxy <addr>              使用代理下载, e.g., -p http://127.0.0.1:2333"
-    echo -e "  -v, --core-version <ver>        自定义 $is_core_name 版本, e.g., -v v1.8.13"
+    echo -e "  -v, --core-version <ver>        自定义 $is_core_name 版本, e.g., -v v1.13.8"
+    echo -e "      --latest                    显式使用最新 $is_core_name release; 默认使用 pinned stable ($DEFAULT_SING_BOX_STABLE_VERSION)"
     echo -e "      --dry-run                   仅输出安装计划, 不修改系统"
     echo -e "      --plan                      等同于 --dry-run"
     echo -e "      --yes                       跳过安装计划确认, 适用于自动化"
@@ -425,7 +492,13 @@ install_pkg() {
 download() {
     case $1 in
     core)
-        [[ ! $is_core_ver ]] && is_core_ver=$(_wget -qO- "https://api.github.com/repos/${is_core_repo}/releases/latest?v=$RANDOM" | grep tag_name | grep -E -o 'v([0-9.]+)')
+        if [[ ! $is_core_ver ]]; then
+            if [[ ${IS_USE_LATEST_VERSION:-false} == true ]]; then
+                is_core_ver=$(_wget -qO- "https://api.github.com/repos/${is_core_repo}/releases/latest?v=$RANDOM" | grep tag_name | grep -E -o 'v([0-9.]+)')
+            else
+                is_core_ver=$DEFAULT_SING_BOX_STABLE_VERSION
+            fi
+        fi
         asset="${is_core}-${is_core_ver:1}-linux-${is_arch}.tar.gz"
         [[ $is_core_ver ]] && link="https://github.com/${is_core_repo}/releases/download/${is_core_ver}/${asset}"
         digest=$(get_github_asset_digest "$is_core_repo" "$is_core_ver" "$asset")
@@ -542,10 +615,15 @@ pass_args() {
             ;;
         -v | --core-version)
             [[ -z $2 ]] && {
-                err "($1) 缺少必需参数, 正确使用示例: [$1 v1.8.13]"
+                err "($1) 缺少必需参数, 正确使用示例: [$1 v1.13.8]"
             }
-            is_core_ver=v${2//v/}
+            is_core_ver=$(install_normalize_core_version "$2")
+            IS_USER_CORE_VERSION_SPECIFIED=true
             shift 2
+            ;;
+        --latest)
+            IS_USE_LATEST_VERSION=true
+            shift 1
             ;;
         --insecure-download)
             insecure_download=1
@@ -571,6 +649,12 @@ pass_args() {
     done
     [[ $is_core_ver && $is_core_file ]] && {
         err "无法同时自定义 ${is_core_name} 版本和 ${is_core_name} 文件."
+    }
+    [[ $IS_USE_LATEST_VERSION == true && $IS_USER_CORE_VERSION_SPECIFIED == true ]] && {
+        err "Cannot use --latest and --core-version at the same time."
+    }
+    [[ $IS_USE_LATEST_VERSION == true && $is_core_file ]] && {
+        err "无法同时使用 --latest 和自定义 ${is_core_name} 文件."
     }
 }
 
@@ -685,22 +769,28 @@ execute_install() {
         exit_and_del_tmpdir
     }
 
+    ensure_backup_functions_loaded
+    init_backup_transaction install
+
     # create sh dir...
-    write_or_plan_file "$is_sh_dir/" mkdir -p "$is_sh_dir"
+    write_or_plan_file "$is_sh_dir/" safe_ensure_dir "$is_sh_dir"
 
     # copy sh file or unzip sh zip file.
     if [[ $local_install ]]; then
-        write_or_plan_file "$is_sh_dir/" cp -rf "$PWD"/* "$is_sh_dir"
+        write_or_plan_file "$is_sh_dir/" safe_copy_contents "$PWD" "$is_sh_dir"
     else
+        write_or_plan_file "$is_sh_dir/" backup_path_before_write "$is_sh_dir"
         write_or_plan_file "$is_sh_dir/" tar zxf "$is_sh_ok" -C "$is_sh_dir"
     fi
 
     # create core bin dir
-    write_or_plan_file "$is_core_dir/bin/" mkdir -p "$is_core_dir/bin"
+    write_or_plan_file "$is_core_dir/bin/" safe_ensure_dir "$is_core_dir/bin"
     # copy core file or unzip core zip file
     if [[ $is_core_file ]]; then
+        write_or_plan_file "$is_core_dir/bin/$is_core" backup_path_before_write "$is_core_bin"
         write_or_plan_file "$is_core_dir/bin/$is_core" cp -rf "$tmpdir/testzip"/* "$is_core_dir/bin"
     else
+        write_or_plan_file "$is_core_dir/bin/$is_core" backup_path_before_write "$is_core_bin"
         write_or_plan_file "$is_core_dir/bin/$is_core" tar zxf "$is_core_ok" --strip-components 1 -C "$is_core_dir/bin"
     fi
 
@@ -709,17 +799,18 @@ execute_install() {
     echo "alias $is_core=$is_sh_bin" >>/root/.bashrc
 
     # core command
-    write_or_plan_file "$is_sh_bin" ln -sf $is_sh_dir/$is_core.sh $is_sh_bin
-    write_or_plan_file "${is_sh_bin/$is_core/sb}" ln -sf $is_sh_dir/$is_core.sh ${is_sh_bin/$is_core/sb}
+    write_or_plan_file "$is_sh_bin" safe_link_file "$is_sh_dir/$is_core.sh" "$is_sh_bin"
+    write_or_plan_file "${is_sh_bin/$is_core/sb}" safe_link_file "$is_sh_dir/$is_core.sh" "${is_sh_bin/$is_core/sb}"
 
     # jq
-    [[ $jq_not_found ]] && write_or_plan_file "/usr/bin/jq" install -m 0755 "$is_jq_ok" /usr/bin/jq
+    [[ $jq_not_found ]] && write_or_plan_file "/usr/bin/jq" safe_copy_file "$is_jq_ok" /usr/bin/jq
 
     # chmod
-    chmod +x "$is_core_bin" "$is_sh_bin" /usr/bin/jq "${is_sh_bin/$is_core/sb}"
+    safe_chmod_path +x "$is_core_bin"
+    [[ -e /usr/bin/jq ]] && chmod +x /usr/bin/jq
 
     # create log dir
-    write_or_plan_file "$is_log_dir/" mkdir -p "$is_log_dir"
+    write_or_plan_file "$is_log_dir/" safe_ensure_dir "$is_log_dir"
 
     # show a tips msg
     msg ok "生成配置文件..."
@@ -732,13 +823,14 @@ execute_install() {
     install_service $is_core &>/dev/null
 
     # create condf dir
-    mkdir -p "$is_conf_dir"
+    safe_ensure_dir "$is_conf_dir"
 
     load core.sh
     # create the base config only; protocol configs are added from the menu.
     create config.json
     # wait for background tasks (e.g., OpenRC service start)
     wait
+    finalize_backup_transaction
     show_install_complete
     open_main_menu_if_interactive
     # remove tmp dir and exit.
@@ -750,6 +842,7 @@ main() {
     # check parameters
     [[ $# -gt 0 ]] && pass_args "$@"
 
+    apply_install_core_version_policy
     detect_install_environment
     build_install_plan
 

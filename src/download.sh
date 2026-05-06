@@ -88,7 +88,15 @@ get_latest_version() {
 
 download() {
     latest_ver=$2
-    [[ ! $latest_ver ]] && get_latest_version "$1"
+    if [[ ! $latest_ver && $1 == core ]]; then
+        if [[ ${IS_USE_LATEST_VERSION:-false} == true ]]; then
+            get_latest_version "$1"
+        else
+            latest_ver=$DEFAULT_SING_BOX_STABLE_VERSION
+        fi
+    elif [[ ! $latest_ver ]]; then
+        get_latest_version "$1"
+    fi
     tmpdir=$(make_tmpdir)
     expected_sha256=
     case $1 in
@@ -99,12 +107,13 @@ download() {
         link="https://github.com/${is_core_repo}/releases/download/${latest_ver}/${asset}"
         expected_sha256=$(get_github_asset_digest "$is_core_repo" "$latest_ver" "$asset")
         download_file
+        backup_path_before_write "$is_core_bin"
         tar zxf "$tmpfile" --strip-components 1 -C "$is_core_dir/bin"
         [[ -f $is_core_bin ]] || {
             rm -rf "$tmpdir"
             err "${name} 压缩包中未找到可执行文件."
         }
-        chmod +x "$is_core_bin"
+        safe_chmod_path +x "$is_core_bin"
         ;;
     sh)
         name="$is_core_name 脚本"
@@ -113,8 +122,9 @@ download() {
         link="https://github.com/${is_sh_repo}/releases/download/${latest_ver}/${asset}"
         expected_sha256=$(get_github_asset_digest "$is_sh_repo" "$latest_ver" "$asset")
         download_file
+        backup_path_before_write "$is_sh_dir"
         tar zxf "$tmpfile" -C "$is_sh_dir"
-        chmod +x "$is_sh_bin" "${is_sh_bin/$is_core/sb}"
+        safe_chmod_path +x "$is_sh_bin" "${is_sh_bin/$is_core/sb}"
         ;;
     caddy)
         name="Caddy"
@@ -128,7 +138,8 @@ download() {
             rm -rf "$tmpdir"
             err "${name} 压缩包中未找到可执行文件."
         }
-        install -m 0755 "$tmpdir/caddy" "$is_caddy_bin"
+        safe_copy_file "$tmpdir/caddy" "$is_caddy_bin"
+        safe_chmod_path 0755 "$is_caddy_bin"
         ;;
     esac
     rm -rf "$tmpdir"
