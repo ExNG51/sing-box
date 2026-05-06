@@ -24,6 +24,10 @@ jobs:
       #     exit 1
       - name: hardening checks
         run: bash tests/supply-chain-hardening.sh
+      - name: backup rollback checks
+        run: bash tests/backup-rollback.sh
+      - name: version pin checks
+        run: bash tests/version-pin.sh
       - name: install behavior checks
         run: bash tests/install-no-auto-reality.sh
       - name: tar
