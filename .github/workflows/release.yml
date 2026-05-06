@@ -24,6 +24,8 @@ jobs:
       #     exit 1
       - name: hardening checks
         run: bash tests/supply-chain-hardening.sh
+      - name: install behavior checks
+        run: bash tests/install-no-auto-reality.sh
       - name: tar
         run: tar zcvf code.tar.gz ./*
       - name: release

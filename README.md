@@ -12,7 +12,7 @@
 - 兼容 sing-box 命令
 - 强大的快捷参数
 - 支持所有常用协议
-- 一键添加 VLESS-REALITY (默认)
+- 一键添加 VLESS-REALITY
 - 一键添加 TUIC
 - 一键添加 Trojan
 - 一键添加 Hysteria2
@@ -44,6 +44,9 @@
 # 文档
 
 使用：`sing-box help`
+
+安装完成后不会自动创建任何代理协议配置，请进入菜单手动选择需要添加的协议。
+After installation, no proxy protocol is created automatically. Use the menu to add the protocol you need.
 
 # 帮助
 

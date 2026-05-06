@@ -398,6 +398,23 @@ exit_and_del_tmpdir() {
     exit
 }
 
+show_install_complete() {
+    msg ok "$is_core_name installed successfully."
+    msg ok "No proxy protocol has been created automatically."
+    msg ok "Use the menu to add AnyTLS, Reality, TUIC, Hysteria2, Trojan, Shadowsocks, VMess, or other supported protocols."
+    msg ok "$is_core_name 已安装完成。"
+    msg ok "当前未自动创建任何代理协议配置。"
+    msg ok "请在主菜单中手动选择需要添加的协议，例如 AnyTLS、Reality、TUIC、Hysteria2、Trojan、Shadowsocks、VMess 等。"
+}
+
+open_main_menu_if_interactive() {
+    if [ -t 0 ] && [ -t 1 ]; then
+        "$is_sh_bin" main
+    else
+        msg ok "Run '$is_core' or 'sb' to open the menu and add a protocol."
+    fi
+}
+
 # main
 main() {
 
@@ -541,10 +558,12 @@ main() {
     mkdir -p "$is_conf_dir"
 
     load core.sh
-    # create a reality config
-    add reality
+    # create the base config only; protocol configs are added from the menu.
+    create config.json
     # wait for background tasks (e.g., OpenRC service start)
     wait
+    show_install_complete
+    open_main_menu_if_interactive
     # remove tmp dir and exit.
     exit_and_del_tmpdir ok
 }
