@@ -704,7 +704,7 @@ uninstall() {
     elif [[ $is_openrc ]]; then
         safe_remove_path "/etc/init.d/$is_core"
     fi
-    sed -i "/$is_core/d" /root/.bashrc
+    safe_remove_shell_aliases "${is_shell_profile:-/root/.bashrc}"
     # uninstall caddy; 2 is ask result
     if [[ $REPLY == '2' ]]; then
         manage stop caddy &>/dev/null

@@ -9,6 +9,8 @@ IS_BACKUP_TXN_DIR=
 IS_BACKUP_CREATED_AT=
 IS_BACKUP_RECORDED_PATHS=$'\n'
 IS_BACKUP_MANIFEST_FILES=()
+SHELL_ALIAS_BLOCK_BEGIN="# >>> sing-box script aliases >>>"
+SHELL_ALIAS_BLOCK_END="# <<< sing-box script aliases <<<"
 
 backup_warn() {
     if type warn >/dev/null 2>&1; then
@@ -35,6 +37,13 @@ backup_json_escape() {
     value=${value//$'\r'/\\r}
     value=${value//$'\t'/\\t}
     printf '%s' "$value"
+}
+
+shell_single_quote() {
+    local value=${1-}
+
+    value=$(printf '%s' "$value" | sed "s/'/'\\\\''/g")
+    printf "'%s'" "$value"
 }
 
 backup_sha256_before() {
@@ -94,6 +103,9 @@ backup_relative_path() {
         ;;
     "${is_core_bin:-}")
         printf 'bin/%s' "$(basename "$path")"
+        ;;
+    "${is_shell_profile:-/root/.bashrc}" | "/root/.bashrc")
+        printf 'root/.bashrc'
         ;;
     */lib/systemd/system/*)
         printf 'lib/systemd/system/%s' "${path##*/lib/systemd/system/}"
@@ -242,6 +254,7 @@ backup_standard_managed_paths() {
     backup_path_before_write "${is_core_bin:-/usr/local/bin/sing-box}"
     backup_path_before_write "${is_sh_bin:-/usr/local/bin/sing-box}"
     backup_path_before_write "${is_sh_bin/${is_core:-sing-box}/sb}"
+    backup_path_before_write "${is_shell_profile:-/root/.bashrc}"
 }
 
 finalize_backup_transaction() {
@@ -357,6 +370,98 @@ safe_link_file() {
     backup_path_before_write "$link_path" || return 1
     mkdir -p "$(dirname "$link_path")" || return 1
     ln -sf "$target" "$link_path"
+}
+
+is_managed_shell_profile_path() {
+    local path=${1-}
+
+    [[ $path ]] || return 1
+    [[ $path == "${is_shell_profile:-/root/.bashrc}" ]] && return 0
+    [[ ${is_profile_file:-} && $path == "$is_profile_file" ]] && return 0
+    [[ $path == "/root/.bashrc" ]] && return 0
+    return 1
+}
+
+backup_shell_profile_before_write() {
+    local profile=${1:-${is_shell_profile:-/root/.bashrc}}
+
+    # shell profile 只能通过受管入口修改；这里不允许删除 /root/.bashrc。
+    is_managed_shell_profile_path "$profile" || {
+        backup_die "拒绝修改非脚本管理 shell profile: $profile"
+        return 1
+    }
+    [[ ! -d $profile || -L $profile ]] || {
+        backup_die "拒绝把目录当作 shell profile 修改: $profile"
+        return 1
+    }
+    backup_path_before_write "$profile"
+}
+
+remove_shell_alias_block() {
+    local profile=${1:-${is_shell_profile:-/root/.bashrc}}
+
+    [[ -f $profile ]] || return 0
+    # 只识别固定 marker，删除范围严格限定在 marker block 内。
+    awk -v begin="$SHELL_ALIAS_BLOCK_BEGIN" -v end="$SHELL_ALIAS_BLOCK_END" '
+        $0 == begin { in_block = 1; next }
+        $0 == end {
+            if (in_block) {
+                in_block = 0
+                next
+            }
+        }
+        !in_block { print }
+    ' "$profile"
+}
+
+render_shell_alias_block() {
+    local sh_bin=${is_sh_bin:-/usr/local/bin/sing-box}
+    local core_alias=${is_core:-sing-box}
+    local quoted_sh_bin
+
+    quoted_sh_bin=$(shell_single_quote "$sh_bin")
+    printf '%s\n' "$SHELL_ALIAS_BLOCK_BEGIN"
+    printf 'alias sb=%s\n' "$quoted_sh_bin"
+    printf 'alias %s=%s\n' "$core_alias" "$quoted_sh_bin"
+    printf '%s\n' "$SHELL_ALIAS_BLOCK_END"
+}
+
+safe_update_shell_aliases() {
+    local profile=${1:-${is_shell_profile:-/root/.bashrc}}
+    local dir base tmp
+
+    # 写 alias 前先备份原 profile；重复安装先移除旧 block，再写入新 block。
+    backup_shell_profile_before_write "$profile" || return 1
+    dir=$(dirname "$profile")
+    base=$(basename "$profile")
+    mkdir -p "$dir" || return 1
+    tmp=$(mktemp "$dir/.${base}.tmp.XXXXXX") || return 1
+    remove_shell_alias_block "$profile" >"$tmp" || {
+        rm -f "$tmp"
+        return 1
+    }
+    render_shell_alias_block >>"$tmp" || {
+        rm -f "$tmp"
+        return 1
+    }
+    mv -f "$tmp" "$profile"
+}
+
+safe_remove_shell_aliases() {
+    local profile=${1:-${is_shell_profile:-/root/.bashrc}}
+    local dir base tmp
+
+    # 卸载只删除 marker block，保留 block 外用户自定义内容。
+    [[ -e $profile || -L $profile ]] || return 0
+    backup_shell_profile_before_write "$profile" || return 1
+    dir=$(dirname "$profile")
+    base=$(basename "$profile")
+    tmp=$(mktemp "$dir/.${base}.tmp.XXXXXX") || return 1
+    remove_shell_alias_block "$profile" >"$tmp" || {
+        rm -f "$tmp"
+        return 1
+    }
+    mv -f "$tmp" "$profile"
 }
 
 strip_trailing_slashes_for_remove() {
@@ -490,10 +595,18 @@ safe_remove_path() {
 
 safe_sed_inplace() {
     local path=$1
+    local dir base tmp
     shift
 
     backup_path_before_write "$path" || return 1
-    sed -i "$@" "$path"
+    dir=$(dirname "$path")
+    base=$(basename "$path")
+    tmp=$(mktemp "$dir/.${base}.sed.XXXXXX") || return 1
+    sed "$@" "$path" >"$tmp" || {
+        rm -f "$tmp"
+        return 1
+    }
+    mv -f "$tmp" "$path"
 }
 
 safe_chmod_path() {

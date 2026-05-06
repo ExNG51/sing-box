@@ -52,6 +52,7 @@ is_core_repo=SagerNet/$is_core
 is_conf_dir=$is_core_dir/conf
 is_log_dir=/var/log/$is_core
 is_sh_bin=/usr/local/bin/$is_core
+is_shell_profile=/root/.bashrc
 is_sh_dir=$is_core_dir/sh
 is_sh_repo=$is_sh_owner/$is_core
 is_pkg="wget tar bash ca-certificates coreutils"
@@ -363,7 +364,7 @@ build_install_plan() {
     add_plan_item "Files to write" "$is_log_dir/"
     add_plan_item "Files to write" "$is_sh_bin"
     add_plan_item "Files to write" "${is_sh_bin/$is_core/sb}"
-    add_plan_item "Files to write" "/root/.bashrc"
+    add_plan_item "Files to write" "$is_shell_profile"
     add_plan_item "Files to write" "/usr/bin/jq when jq is not already installed"
     if [[ $is_init_system == systemd ]]; then
         add_plan_item "Files to write" "/etc/systemd/system/$is_core.service"
@@ -787,16 +788,14 @@ execute_install() {
     write_or_plan_file "$is_core_dir/bin/" safe_ensure_dir "$is_core_dir/bin"
     # copy core file or unzip core zip file
     if [[ $is_core_file ]]; then
-        write_or_plan_file "$is_core_dir/bin/$is_core" backup_path_before_write "$is_core_bin"
-        write_or_plan_file "$is_core_dir/bin/$is_core" cp -rf "$tmpdir/testzip"/* "$is_core_dir/bin"
+        write_or_plan_file "$is_core_dir/bin/$is_core" safe_copy_contents "$tmpdir/testzip" "$is_core_dir/bin"
     else
         write_or_plan_file "$is_core_dir/bin/$is_core" backup_path_before_write "$is_core_bin"
         write_or_plan_file "$is_core_dir/bin/$is_core" tar zxf "$is_core_ok" --strip-components 1 -C "$is_core_dir/bin"
     fi
 
-    # add alias
-    echo "alias sb=$is_sh_bin" >>/root/.bashrc
-    echo "alias $is_core=$is_sh_bin" >>/root/.bashrc
+    # add aliases
+    write_or_plan_file "$is_shell_profile" safe_update_shell_aliases "$is_shell_profile"
 
     # core command
     write_or_plan_file "$is_sh_bin" safe_link_file "$is_sh_dir/$is_core.sh" "$is_sh_bin"

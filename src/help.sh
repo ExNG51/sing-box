@@ -74,6 +74,8 @@ show_help() {
         done
         msg "Backup: 修改关键文件前会在 $is_core_dir/backups/ 创建本地事务备份。"
         msg "Rollback: 使用 $is_core rollback 恢复最近一次脚本管理的写入。"
+        msg "Alias: 脚本通过带标记的 alias block 管理 ${is_shell_profile:-/root/.bashrc}，修改前会进入备份事务，rollback 可恢复。"
+        msg "Alias: 不会删除 alias block 外的用户自定义内容。"
         msg "Version policy: sing-box core 默认使用 pinned stable; 只有显式 --latest 才追 upstream latest。"
         msg "谨慎使用 del, ddel; 删除前会写入备份事务，但仍应确认目标配置。"
         msg "反馈问题) $(msg_ul https://github.com/${is_sh_repo}/issues) "

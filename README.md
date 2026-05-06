@@ -60,7 +60,13 @@ Use `--latest` only if you explicitly want the latest upstream release, because 
 User-specified versions such as `bash install.sh -v v1.13.8` or `sb update core --core-version v1.13.8` take priority over the default pin.
 
 Rollback only covers key files managed by this script, including sing-box config files, Caddy config files, service files, and managed binaries.
-Rollback does not roll back system package installation, firewall changes made outside the managed files, `/root/.bashrc` alias edits, or Caddy certificate cache.
+The script manages shell aliases using a marked block in `/root/.bashrc`.
+The alias block is backup-aware and can be restored by rollback.
+User content outside the managed block is preserved.
+脚本通过带标记的 alias block 管理 `/root/.bashrc`。
+修改前会进入 backup transaction，rollback 可恢复。
+不会删除 block 外的用户自定义内容。
+Rollback does not roll back system package installation, firewall changes made outside the managed files, or Caddy certificate cache.
 
 # 帮助
 
@@ -130,6 +136,8 @@ Usage: sing-box [options]... [args]...
 
 Backup: 修改关键文件前会在 /etc/sing-box/backups/ 创建本地事务备份。
 Rollback: 使用 sing-box rollback 恢复最近一次脚本管理的写入。
+Alias: 脚本通过带标记的 alias block 管理 /root/.bashrc，修改前会进入备份事务，rollback 可恢复。
+Alias: 不会删除 alias block 外的用户自定义内容。
 Version policy: sing-box core 默认使用 pinned stable; 只有显式 --latest 才追 upstream latest。
 谨慎使用 del, ddel; 删除前会写入备份事务，但仍应确认目标配置。
 反馈问题) https://github.com/ExNG51/sing-box/issues

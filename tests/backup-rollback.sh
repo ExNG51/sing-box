@@ -16,6 +16,30 @@ assert_file_contains() {
     }
 }
 
+assert_file_not_contains() {
+    local file=$1
+    local text=$2
+    local description=$3
+    if grep -Fq -- "$text" "$file"; then
+        cat "$file" >&2
+        fail "$description"
+    fi
+}
+
+assert_match_count() {
+    local file=$1
+    local text=$2
+    local expected=$3
+    local description=$4
+    local count
+
+    count=$(grep -Fc -- "$text" "$file" || true)
+    [[ $count == "$expected" ]] || {
+        cat "$file" >&2
+        fail "$description: expected $expected, got $count"
+    }
+}
+
 assert_exists() {
     [[ -e $1 || -L $1 ]] || fail "$2"
 }
@@ -39,6 +63,7 @@ is_caddyfile="$is_caddy_dir/Caddyfile"
 is_caddy_conf="$is_caddy_dir/conf"
 is_core_bin="$TEST_ROOT/usr/local/bin/sing-box"
 is_sh_bin="$TEST_ROOT/usr/local/bin/sb"
+is_shell_profile="$TEST_ROOT/root/.bashrc"
 
 is_systemd=
 is_openrc=
@@ -59,6 +84,128 @@ msg() {
 
 # shellcheck disable=SC1091
 . "$REPO_ROOT/src/backup.sh"
+
+load_legacy_helpers_from_init() {
+    local definitions
+
+    definitions=$(awk '
+        /^_rm\(\)/,/^}/ { print }
+        /^_cp\(\)/,/^}/ { print }
+        /^_sed\(\)/,/^}/ { print }
+        /^_mkdir\(\)/,/^}/ { print }
+    ' "$REPO_ROOT/src/init.sh")
+    [[ $definitions == *"_rm()"* ]] || fail 'src/init.sh must expose legacy helper definitions'
+    # shellcheck disable=SC1090
+    eval "$definitions"
+}
+
+assert_shell_alias_management() {
+    local profile=$is_shell_profile
+    local latest_id manifest old_sh_bin
+
+    mkdir -p "$(dirname "$profile")"
+    printf 'export PATH="$PATH:/custom/bin"\n' >"$profile"
+
+    init_backup_transaction alias-first-write
+    safe_update_shell_aliases "$profile"
+    safe_update_shell_aliases "$profile"
+    finalize_backup_transaction
+
+    assert_file_contains "$profile" 'export PATH="$PATH:/custom/bin"' 'alias update must preserve shell profile content outside the managed block'
+    assert_match_count "$profile" '# >>> sing-box script aliases >>>' 1 'alias update must write one begin marker'
+    assert_match_count "$profile" '# <<< sing-box script aliases <<<' 1 'alias update must write one end marker'
+    assert_match_count "$profile" "alias sb='$is_sh_bin'" 1 'alias update must write one sb alias'
+    assert_match_count "$profile" "alias $is_core='$is_sh_bin'" 1 'alias update must write one sing-box alias'
+
+    latest_id="$(cat "$is_backup_dir/latest")"
+    manifest="$is_backup_dir/$latest_id/manifest.json"
+    assert_file_contains "$manifest" "\"path\":\"$profile\"" 'alias update manifest must record shell profile path'
+    assert_exists "$is_backup_dir/$latest_id/root/.bashrc" 'alias update must snapshot existing shell profile'
+
+    old_sh_bin=$is_sh_bin
+    is_sh_bin="$TEST_ROOT/usr/local/bin/sing-box-new"
+    init_backup_transaction alias-update-path
+    safe_update_shell_aliases "$profile"
+    finalize_backup_transaction
+    assert_file_not_contains "$profile" "$old_sh_bin" 'alias update must remove the old managed alias target'
+    assert_file_contains "$profile" "alias sb='$is_sh_bin'" 'alias update must write the new sb alias target'
+    assert_file_contains "$profile" "alias $is_core='$is_sh_bin'" 'alias update must write the new sing-box alias target'
+    assert_file_contains "$profile" 'export PATH="$PATH:/custom/bin"' 'alias path update must preserve shell profile content outside the managed block'
+    is_sh_bin=$old_sh_bin
+
+    init_backup_transaction alias-remove
+    safe_remove_shell_aliases "$profile"
+    finalize_backup_transaction
+    assert_file_not_contains "$profile" '# >>> sing-box script aliases >>>' 'alias removal must delete begin marker'
+    assert_file_not_contains "$profile" '# <<< sing-box script aliases <<<' 'alias removal must delete end marker'
+    assert_file_not_contains "$profile" 'alias sb=' 'alias removal must delete managed sb alias'
+    assert_file_not_contains "$profile" "alias $is_core=" 'alias removal must delete managed sing-box alias'
+    assert_file_contains "$profile" 'export PATH="$PATH:/custom/bin"' 'alias removal must preserve shell profile content outside the managed block'
+
+    printf 'export ORIGINAL_ALIAS_STATE=1\n' >"$profile"
+    init_backup_transaction alias-rollback
+    safe_update_shell_aliases "$profile"
+    finalize_backup_transaction
+    latest_id="$(cat "$is_backup_dir/latest")"
+    manifest="$is_backup_dir/$latest_id/manifest.json"
+    assert_file_contains "$manifest" "\"path\":\"$profile\"" 'alias rollback manifest must include shell profile path'
+    rollback_latest_backup --yes >/tmp/backup-rollback-alias.out
+    assert_file_contains "$profile" 'export ORIGINAL_ALIAS_STATE=1' 'rollback must restore shell profile content before alias update'
+    assert_file_not_contains "$profile" '# >>> sing-box script aliases >>>' 'rollback must remove alias block created after backup'
+
+    if grep -R 'sed -i "/$is_core/d" /root/.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
+        fail 'uninstall must not delete /root/.bashrc aliases with a broad sed match'
+    fi
+    if grep -R '>>/root/.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
+        fail 'install must not append aliases directly to /root/.bashrc'
+    fi
+}
+
+assert_legacy_helpers_route_through_safe_ops() {
+    local unsafe_path=$TEST_ROOT/home/user/custom-file
+    local latest_id manifest
+    local helper_file helper_src helper_dst helper_dir
+
+    load_legacy_helpers_from_init
+
+    mkdir -p "$(dirname "$unsafe_path")"
+    printf 'do not remove\n' >"$unsafe_path"
+    if _rm "$unsafe_path" >/tmp/backup-rollback-helper-rm.out 2>&1; then
+        fail '_rm must reject unmanaged paths instead of deleting them directly'
+    fi
+    assert_exists "$unsafe_path" '_rm must leave unmanaged paths untouched'
+
+    mkdir -p "$is_conf_dir"
+    helper_file="$is_conf_dir/helper-sed.json"
+    printf '{"name":"old"}\n' >"$helper_file"
+    init_backup_transaction helper-sed
+    _sed 's#old#new#' "$helper_file"
+    finalize_backup_transaction
+    assert_file_contains "$helper_file" '{"name":"new"}' '_sed must update the target file'
+    latest_id="$(cat "$is_backup_dir/latest")"
+    manifest="$is_backup_dir/$latest_id/manifest.json"
+    assert_file_contains "$manifest" "\"path\":\"$helper_file\"" '_sed must record the modified file in the backup manifest'
+
+    helper_src="$TEST_ROOT/source.json"
+    helper_dst="$is_conf_dir/helper-copy.json"
+    printf '{"copied":true}\n' >"$helper_src"
+    init_backup_transaction helper-copy
+    _cp "$helper_src" "$helper_dst"
+    finalize_backup_transaction
+    assert_file_contains "$helper_dst" '{"copied":true}' '_cp must copy file content'
+    latest_id="$(cat "$is_backup_dir/latest")"
+    manifest="$is_backup_dir/$latest_id/manifest.json"
+    assert_file_contains "$manifest" "\"path\":\"$helper_dst\"" '_cp must record the destination in the backup manifest'
+
+    helper_dir="$is_core_dir/helper-dir"
+    init_backup_transaction helper-mkdir
+    _mkdir "$helper_dir"
+    finalize_backup_transaction
+    assert_exists "$helper_dir" '_mkdir must create the directory'
+    latest_id="$(cat "$is_backup_dir/latest")"
+    manifest="$is_backup_dir/$latest_id/manifest.json"
+    assert_file_contains "$manifest" "\"path\":\"$helper_dir\"" '_mkdir must record the created directory in the backup manifest'
+}
 
 assert_rejects_dangerous_remove_paths() {
     local candidate
@@ -166,6 +313,8 @@ assert_allows_managed_remove_paths() {
     done
 }
 
+assert_shell_alias_management
+assert_legacy_helpers_route_through_safe_ops
 assert_rejects_dangerous_remove_paths
 assert_allows_managed_remove_paths
 

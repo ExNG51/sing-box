@@ -21,17 +21,76 @@ _yellow() { echo -e ${yellow}$@${none}; }
 _magenta() { echo -e ${magenta}$@${none}; }
 _red_bg() { echo -e "\e[41m$@${none}"; }
 
+_legacy_helper_warn() {
+    if type backup_warn >/dev/null 2>&1; then
+        backup_warn "$*"
+    elif type warn >/dev/null 2>&1; then
+        warn "$*"
+    else
+        printf 'WARN: %s\n' "$*" >&2
+    fi
+}
+
 _rm() {
-    rm -rf "$@"
+    if type safe_remove_path >/dev/null 2>&1; then
+        safe_remove_path "$@"
+        return
+    fi
+    _legacy_helper_warn "safe_remove_path unavailable; refusing _rm."
+    return 1
 }
 _cp() {
-    cp -rf "$@"
+    local src dst
+
+    [[ $# -eq 2 ]] || {
+        _legacy_helper_warn "_cp only supports one source and one destination through safe operations."
+        return 1
+    }
+    type safe_copy_file >/dev/null 2>&1 || {
+        _legacy_helper_warn "safe_copy_file unavailable; refusing _cp."
+        return 1
+    }
+    src=$1
+    dst=$2
+    if [[ -d $src ]]; then
+        type safe_copy_contents >/dev/null 2>&1 || {
+            _legacy_helper_warn "safe_copy_contents unavailable; refusing directory _cp."
+            return 1
+        }
+        safe_copy_contents "$src" "$dst"
+    else
+        safe_copy_file "$src" "$dst"
+    fi
 }
 _sed() {
-    sed -i "$@"
+    local expression path
+
+    [[ $# -eq 2 ]] || {
+        _legacy_helper_warn "_sed only supports: _sed <expression> <path>."
+        return 1
+    }
+    type safe_sed_inplace >/dev/null 2>&1 || {
+        _legacy_helper_warn "safe_sed_inplace unavailable; refusing _sed."
+        return 1
+    }
+    expression=$1
+    path=$2
+    safe_sed_inplace "$path" "$expression"
 }
 _mkdir() {
-    mkdir -p "$@"
+    local path
+
+    [[ $# -gt 0 ]] || {
+        _legacy_helper_warn "refusing _mkdir with no paths."
+        return 1
+    }
+    type safe_ensure_dir >/dev/null 2>&1 || {
+        _legacy_helper_warn "safe_ensure_dir unavailable; refusing _mkdir."
+        return 1
+    }
+    for path in "$@"; do
+        safe_ensure_dir "$path" || return 1
+    done
 }
 
 is_err=$(_red_bg 错误!)
@@ -84,6 +143,7 @@ is_core_repo=SagerNet/$is_core
 is_conf_dir=$is_core_dir/conf
 is_log_dir=/var/log/$is_core
 is_sh_bin=/usr/local/bin/$is_core
+is_shell_profile=/root/.bashrc
 is_sh_dir=$is_core_dir/sh
 is_sh_repo=$is_sh_owner/$is_core
 is_pkg="wget unzip tar qrencode bash ca-certificates coreutils"
