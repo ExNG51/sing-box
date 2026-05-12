@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-printf '%s\n' "firewall-cmd $*" >> "/Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-install-root.tYcl6d/mock-commands.log"
-exit 42

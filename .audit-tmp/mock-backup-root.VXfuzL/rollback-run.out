@@ -1,8 +1,0 @@
-Rollback manifest: 2026-05-06T19:47:06Z (add)
-Rollback plan:
-- restore: /Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/etc/sing-box/config.json
-- delete: /Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/etc/sing-box/conf/new.json
-- restore: /Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/etc/sing-box/conf/old.json
-- restore: /Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/etc/caddy/Caddyfile
-- restore: /Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/lib/systemd/system/sing-box.service
-Rollback complete.
