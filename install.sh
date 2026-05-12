@@ -151,6 +151,7 @@ load() {
 
 load_install_support_script() {
     local script=$1
+    local member
     local support_dir
     if [[ -f $PWD/src/$script ]]; then
         # shellcheck disable=SC1090
@@ -160,12 +161,14 @@ load_install_support_script() {
     if [[ -n ${is_sh_ok:-} && -f $is_sh_ok ]]; then
         support_dir=$tmpdir/install-support
         mkdir -p "$support_dir"
-        tar zxf "$is_sh_ok" -C "$support_dir" "src/$script" 2>/dev/null || true
-        if [[ -f $support_dir/src/$script ]]; then
-            # shellcheck disable=SC1090
-            . "$support_dir/src/$script"
-            return
-        fi
+        for member in "src/$script" "./src/$script"; do
+            tar zxf "$is_sh_ok" -C "$support_dir" "$member" 2>/dev/null || true
+            if [[ -f $support_dir/src/$script ]]; then
+                # shellcheck disable=SC1090
+                . "$support_dir/src/$script"
+                return
+            fi
+        done
     fi
     err "无法加载安装支持脚本: src/$script"
 }
