@@ -32,6 +32,8 @@ jobs:
         run: bash tests/install-no-auto-reality.sh
       - name: install support script checks
         run: bash tests/install-support-script-load.sh
+      - name: install command permission checks
+        run: bash tests/install-command-permissions.sh
       - name: tar
         run: tar zcvf code.tar.gz ./*
       - name: release

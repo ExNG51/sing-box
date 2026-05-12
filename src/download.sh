@@ -124,7 +124,7 @@ download() {
         download_file
         backup_path_before_write "$is_sh_dir"
         tar zxf "$tmpfile" -C "$is_sh_dir"
-        safe_chmod_path +x "$is_sh_bin" "${is_sh_bin/$is_core/sb}"
+        safe_chmod_path +x "$is_sh_dir/$is_core.sh" "$is_sh_bin" "${is_sh_bin/$is_core/sb}"
         ;;
     caddy)
         name="Caddy"

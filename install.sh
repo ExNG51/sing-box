@@ -808,7 +808,7 @@ execute_install() {
     [[ $jq_not_found ]] && write_or_plan_file "/usr/bin/jq" safe_copy_file "$is_jq_ok" /usr/bin/jq
 
     # chmod
-    safe_chmod_path +x "$is_core_bin"
+    safe_chmod_path +x "$is_core_bin" "$is_sh_dir/$is_core.sh"
     [[ -e /usr/bin/jq ]] && chmod +x /usr/bin/jq
 
     # create log dir
