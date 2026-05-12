@@ -1,0 +1,28 @@
+toplevel=/Volumes/JC-EXT-DATA-01/sing-box
+branch=main
+head=97c49afe89b0f7c14897f8d04b67473246f7f15e
+working_tree_short=
+?? .audit-tmp/
+?? audit-reports/
+?? tests/audit/
+latest_20_commits=
+97c49af (HEAD -> main, origin/main, origin/HEAD) feat: close safe write gaps for helpers and shell aliases
+4f83adc docs: document backup rollback and version policy
+835ed42 test: cover backup rollback install plan and version policy
+3135706 feat: pin and validate stable sing-box version
+0d7d43c feat: add backup rollback safe write and remove guards
+31487eb Add install plan and dry-run confirmation flow
+9e38c19 Stop auto-creating Reality after install
+308b52f Run hardening checks before release packaging
+05ae673 Harden release downloads
+0ca1b0c Remove promotional branding
+3cc4748 (tag: v1.16) Merge pull request #121 from fr0der1c/anytls
+b1c634a feat: add AnyTLS protocol support
+2b97091 Merge pull request #119 from rowanchen-com/main
+2199ef6 fix: force install full wget on Alpine to replace BusyBox version
+4b18389 fix: wait for background tasks before exit to prevent output overlap
+7effde1 Merge pull request #118 from rowanchen-com/main
+9d35760 fix: avoid apk lock conflict by running install_pkg synchronously on Alpine
+c3512eb Merge pull request #117 from rowanchen-com/main
+64528c4 fix: correct Alpine package install error message
+735e738 fix: use supervise-daemon for OpenRC to prevent blocking

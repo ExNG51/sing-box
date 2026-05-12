@@ -1,0 +1,17 @@
+34:_rm() {
+36:        safe_remove_path "$@"
+42:_cp() {
+49:    type safe_copy_file >/dev/null 2>&1 || {
+50:        _legacy_helper_warn "safe_copy_file unavailable; refusing _cp."
+56:        type safe_copy_contents >/dev/null 2>&1 || {
+57:            _legacy_helper_warn "safe_copy_contents unavailable; refusing directory _cp."
+60:        safe_copy_contents "$src" "$dst"
+62:        safe_copy_file "$src" "$dst"
+65:_sed() {
+72:    type safe_sed_inplace >/dev/null 2>&1 || {
+73:        _legacy_helper_warn "safe_sed_inplace unavailable; refusing _sed."
+78:    safe_sed_inplace "$path" "$expression"
+80:_mkdir() {
+87:    type safe_ensure_dir >/dev/null 2>&1 || {
+88:        _legacy_helper_warn "safe_ensure_dir unavailable; refusing _mkdir."
+92:        safe_ensure_dir "$path" || return 1

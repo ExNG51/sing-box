@@ -1,0 +1,20 @@
+{
+  "schema_version":1,
+  "created_at":"2026-05-06T19:47:06Z",
+  "operation":"allow-remove",
+  "script_repo":"ExNG51/sing-box",
+  "script_version":"unknown",
+  "sing_box_version_before":"unknown",
+  "sing_box_version_after":null,
+  "init_system":"unknown",
+  "files":[
+    {"path":"/Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/etc/sing-box/config.json","backup_path":"config.json","type":"file","existed":true,"sha256_before":"e8ac7c4010bb2f7b020cafed63aa4a58fff790b293fde3117e8d1a464462a1f9"},
+    {"path":"/Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/etc/sing-box/conf/test.json","backup_path":"conf/test.json","type":"file","existed":true,"sha256_before":"e8ac7c4010bb2f7b020cafed63aa4a58fff790b293fde3117e8d1a464462a1f9"},
+    {"path":"/Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/etc/caddy/Caddyfile","backup_path":"Caddyfile","type":"file","existed":true,"sha256_before":"e8ac7c4010bb2f7b020cafed63aa4a58fff790b293fde3117e8d1a464462a1f9"},
+    {"path":"/Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/etc/caddy/conf/example.com.conf","backup_path":"caddy-conf/example.com.conf","type":"file","existed":true,"sha256_before":"e8ac7c4010bb2f7b020cafed63aa4a58fff790b293fde3117e8d1a464462a1f9"},
+    {"path":"/Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/etc/caddy/conf/example.com.conf.add","backup_path":"caddy-conf/example.com.conf.add","type":"file","existed":true,"sha256_before":"e8ac7c4010bb2f7b020cafed63aa4a58fff790b293fde3117e8d1a464462a1f9"},
+    {"path":"/Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/lib/systemd/system/sing-box.service","backup_path":"lib/systemd/system/sing-box.service","type":"file","existed":true,"sha256_before":"e8ac7c4010bb2f7b020cafed63aa4a58fff790b293fde3117e8d1a464462a1f9"},
+    {"path":"/Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/etc/init.d/sing-box","backup_path":"etc/init.d/sing-box","type":"file","existed":true,"sha256_before":"e8ac7c4010bb2f7b020cafed63aa4a58fff790b293fde3117e8d1a464462a1f9"},
+    {"path":"/Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/usr/local/bin/sb","backup_path":"usr/local/bin/sb","type":"file","existed":true,"sha256_before":"e8ac7c4010bb2f7b020cafed63aa4a58fff790b293fde3117e8d1a464462a1f9"}
+  ]
+}

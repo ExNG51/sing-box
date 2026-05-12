@@ -1,0 +1,13 @@
+{
+  "schema_version":1,
+  "created_at":"2026-05-06T19:47:06Z",
+  "operation":"alias-first-write",
+  "script_repo":"ExNG51/sing-box",
+  "script_version":"unknown",
+  "sing_box_version_before":"unknown",
+  "sing_box_version_after":null,
+  "init_system":"unknown",
+  "files":[
+    {"path":"/Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-backup-root.VXfuzL/root/.bashrc","backup_path":"root/.bashrc","type":"file","existed":true,"sha256_before":"fdabd2810c908abdc8730b26c39e7fcbcbac8f4622b09637eb258d0ceb996aa1"}
+  ]
+}

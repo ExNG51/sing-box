@@ -1,0 +1,83 @@
+install.sh:82:    trap 'rm -rf "$tmpdir"' EXIT INT TERM
+install.sh:162:        mkdir -p "$support_dir"
+install.sh:664:    [[ ${tmpdir:-} ]] && rm -rf "$tmpdir"
+install.sh:699:    run_or_plan "create temp directory $tmpdir" mkdir -p "$tmpdir"
+install.sh:702:        write_or_plan_file "$is_core_ok" cp -f "$is_core_file" "$is_core_ok"
+install.sh:756:        mkdir -p "$tmpdir/testzip"
+tests/install-no-auto-reality.sh:10:trap 'rm -f "$MATCH_OUTPUT"' EXIT
+tests/version-pin.sh:21:trap 'rm -rf "$TMP_ROOT"' EXIT
+src/core.sh:376:        [[ ! -d $is_caddy_conf ]] && mkdir -p $is_caddy_conf
+src/core.sh:593:            cp -f $is_conf_dir/$is_config_file $is_tmp_json
+src/core.sh:594:            sed -i s#$is_private_key #$is_new_private_key# $is_tmp_json
+src/core.sh:600:            sed -i s#$is_new_private_key #$is_new_public_key# $is_tmp_json
+src/core.sh:606:            rm -f $is_tmp_json
+src/core.sh:1085:            rm -f $is_test_json_save
+tests/supply-chain-hardening.sh:10:trap 'rm -f "$MATCH_OUTPUT"' EXIT
+src/backup.sh:164:    mkdir -p "$is_backup_dir" || {
+src/backup.sh:178:    mkdir -p "$IS_BACKUP_TXN_DIR" || {
+src/backup.sh:218:            mkdir -p "$(dirname "$backup_full")" || return 1
+src/backup.sh:219:            cp -a "$path" "$backup_full" || {
+src/backup.sh:310:    mkdir -p "$dir" || return 1
+src/backup.sh:326:    mkdir -p "$(dirname "$path")" || return 1
+src/backup.sh:333:    # mkdir -p 会创建生产目录；不存在时也记录 existed=false，便于 rollback 删除新目录入口。
+src/backup.sh:335:    mkdir -p "$path"
+src/backup.sh:344:    mkdir -p "$(dirname "$dst")" || return 1
+src/backup.sh:345:    cp -af "$src" "$dst"
+src/backup.sh:353:    mkdir -p "$dst_dir" || return 1
+src/backup.sh:354:    cp -af "$src_dir"/. "$dst_dir"/
+src/backup.sh:362:    mkdir -p "$(dirname "$dst")" || return 1
+src/backup.sh:371:    mkdir -p "$(dirname "$link_path")" || return 1
+src/backup.sh:372:    ln -sf "$target" "$link_path"
+src/backup.sh:437:    mkdir -p "$dir" || return 1
+src/backup.sh:440:        rm -f "$tmp"
+src/backup.sh:444:        rm -f "$tmp"
+src/backup.sh:461:        rm -f "$tmp"
+src/backup.sh:592:        rm -rf -- "$path" || return 1
+src/backup.sh:606:        rm -f "$tmp"
+src/backup.sh:751:            mkdir -p "$(dirname "$path")" || return 1
+src/backup.sh:752:            rm -rf -- "$path" || return 1
+src/backup.sh:753:            cp -a "$src" "$path" || return 1
+src/backup.sh:755:            rm -rf -- "$path" || return 1
+src/download.sh:113:            rm -rf "$tmpdir"
+src/download.sh:138:            rm -rf "$tmpdir"
+src/download.sh:145:    rm -rf "$tmpdir"
+src/download.sh:151:        rm -rf "$tmpdir"
+src/log.sh:22:            rm -rf $is_log_dir/*.log
+src/log.sh:26:            rm -rf $is_log_dir/*.log
+tests/backup-rollback.sh:53:trap 'rm -rf "$TEST_ROOT"' EXIT
+tests/backup-rollback.sh:106:    mkdir -p "$(dirname "$profile")"
+tests/backup-rollback.sh:156:    if grep -R 'sed -i "/$is_core/d" /root/.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
+tests/backup-rollback.sh:171:    mkdir -p "$(dirname "$unsafe_path")"
+tests/backup-rollback.sh:178:    mkdir -p "$is_conf_dir"
+tests/backup-rollback.sh:295:    mkdir -p "$is_conf_dir" "$is_caddy_conf" "$TEST_ROOT/lib/systemd/system" "$TEST_ROOT/etc/init.d" "$TEST_ROOT/usr/local/bin"
+tests/backup-rollback.sh:297:        mkdir -p "$(dirname "$path")"
+tests/backup-rollback.sh:321:mkdir -p "$is_conf_dir" "$is_caddy_conf" "$TEST_ROOT/lib/systemd/system" "$TEST_ROOT/usr/local/bin"
+tests/backup-rollback.sh:368:rm -f "$backup_txn/config.json"
+tests/audit/audit_static_control_flow.sh:11:mkdir -p "$AUDIT_DIR"
+tests/audit/audit_static_control_flow.sh:137:rg -n '(^|[^#])\b(cat|printf|echo)\b.*>|>\s*\$|>\s*/|>>\s*\$|>>\s*/|\brm\b|\bcp\b|\bmv\b|\bsed -i\b|\bmkdir -p\b|\bln -sf\b|\bchmod\b' install.sh src tests .github/workflows/release.yml >"$DIRECT_WRITES_RAW" 2>&1 || true
+tests/pinned-version-compat.sh:11:trap 'rm -rf "$TEST_ROOT"' EXIT
+tests/pinned-version-compat.sh:23:mkdir -p "$CONF_DIR" "$TEST_ROOT/download" "$TEST_ROOT/extract"
+tests/pinned-version-compat.sh:110:    rm -rf "$CONF_DIR"
+tests/pinned-version-compat.sh:111:    mkdir -p "$CONF_DIR"
+src/caddy.sh:5:        mkdir -p $is_caddy_dir $is_caddy_dir/sites $is_caddy_conf
+src/bbr.sh:2:	sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+src/bbr.sh:3:	sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+tests/install-plan-dry-run.sh:11:trap 'rm -rf "$TMP_ROOT"' EXIT
+tests/install-plan-dry-run.sh:16:mkdir -p "$FAKEBIN"
+tests/audit/audit_mock_install_paths.sh:30:mkdir -p "$AUDIT_DIR"
+tests/audit/audit_mock_install_paths.sh:38:mkdir -p "$MOCK_BIN" "$TEST_ROOT/tmp"
+tests/audit/audit_mock_backup_rollback.sh:41:mkdir -p "$AUDIT_DIR"
+tests/audit/audit_mock_backup_rollback.sh:94:mkdir -p "$is_conf_dir" "$is_core_dir/bin" "$is_caddy_conf" "$TEST_ROOT/usr/local/bin" \
+tests/audit/audit_mock_backup_rollback.sh:149:rm -f "$backup_txn/config.json"
+tests/audit/audit_mock_backup_rollback.sh:206:    mkdir -p "$(dirname "$remove_target_path")"
+tests/audit/audit_mock_backup_rollback.sh:272:mkdir -p "$(dirname "$unsafe_path")"
+tests/audit/audit_mock_update_uninstall_paths.sh:31:mkdir -p "$AUDIT_DIR"
+tests/audit/audit_mock_update_uninstall_paths.sh:61:assert_not_contains "$UNINSTALL_BLOCK" 'sed -i' 'uninstall must not broad sed shell aliases'
+tests/audit/audit_mock_update_uninstall_paths.sh:62:assert_not_contains "$UNINSTALL_BLOCK" 'rm -rf' 'uninstall must not directly rm -rf production paths'
+tests/audit/audit_mock_update_uninstall_paths.sh:76:if rg -n '\[\[ ! -d \$is_caddy_conf \]\] && mkdir -p \$is_caddy_conf' "$REPO_ROOT/src/core.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:77:    risk P1 src/core.sh 'create caddy' 'Caddy conf directory can be created with raw mkdir -p instead of safe_ensure_dir'
+tests/audit/audit_mock_update_uninstall_paths.sh:79:if rg -n 'mkdir -p \$is_caddy_dir \$is_caddy_dir/sites \$is_caddy_conf' "$REPO_ROOT/src/caddy.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:80:    risk P1 src/caddy.sh 'caddy_config new' 'Caddy production directories can be created with raw mkdir -p instead of safe_ensure_dir'
+tests/audit/audit_mock_update_uninstall_paths.sh:85:if rg -n 'rm -rf \$is_log_dir/\*\.log' "$REPO_ROOT/src/log.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:86:    risk P1 src/log.sh 'log_set del/none' 'log files can be removed with raw rm -rf outside safe_remove_path'
+tests/audit/audit_mock_update_uninstall_paths.sh:97:if rg -n 'sed -i .* /etc/sysctl\.conf|>>/etc/sysctl\.conf' "$REPO_ROOT/src/bbr.sh" >/dev/null; then

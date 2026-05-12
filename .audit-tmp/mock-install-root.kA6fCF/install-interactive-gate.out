@@ -1,0 +1,5 @@
+675:show_install_complete() {
+685:open_main_menu_if_interactive() {
+686:    if [ -t 0 ] && [ -t 1 ]; then
+833:    show_install_complete
+834:    open_main_menu_if_interactive

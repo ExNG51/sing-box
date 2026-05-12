@@ -1,0 +1,145 @@
+execute_install() {
+    # start installing...
+    msg warn "开始安装..."
+    [[ $is_core_ver ]] && msg warn "${is_core_name} 版本: ${yellow}$is_core_ver${none}"
+    [[ $proxy ]] && msg warn "使用代理: ${yellow}$proxy${none}"
+    # create tmpdir
+    run_or_plan "create temp directory $tmpdir" mkdir -p "$tmpdir"
+    # if is_core_file, copy file
+    [[ $is_core_file ]] && {
+        write_or_plan_file "$is_core_ok" cp -f "$is_core_file" "$is_core_ok"
+        msg warn "${yellow}${is_core_name} 文件使用 > $is_core_file${none}"
+    }
+    # local dir install sh script
+    [[ $local_install ]] && {
+        : >"$is_sh_ok"
+        msg warn "${yellow}本地获取安装脚本 > $PWD ${none}"
+    }
+
+    if [[ $is_systemd ]]; then
+        if ! timedatectl set-ntp true &>/dev/null; then
+            # Used by src/core.sh after it is sourced.
+            # shellcheck disable=SC2034
+            is_ntp_on=1
+        fi
+    fi
+
+    # install dependent pkg
+    if [[ $cmd =~ apk ]]; then
+        # Alpine: force install full versions to replace BusyBox applets
+        apk update &>/dev/null
+        # shellcheck disable=SC2086
+        apk add $is_pkg &>/dev/null && : >"$is_pkg_ok"
+    else
+        # shellcheck disable=SC2086
+        install_pkg $is_pkg
+    fi
+    is_wget=$(type -P wget)
+    if type -P update-ca-certificates >/dev/null; then
+        update-ca-certificates &>/dev/null || true
+    fi
+
+    # jq
+    if [[ $(type -P jq) ]]; then
+        : >"$is_jq_ok"
+    else
+        jq_not_found=1
+    fi
+    # if wget installed. download core, sh, jq, get ip
+    [[ $is_wget ]] && {
+        [[ ! $is_core_file ]] && download_or_plan_asset "sing-box core package" core &
+        [[ ! $local_install ]] && download_or_plan_asset "management script package" sh &
+        [[ $jq_not_found ]] && download_or_plan_asset "jq binary" jq &
+        get_ip
+    }
+
+    # waiting for background tasks is done
+    wait
+
+    # check background tasks status
+    check_status
+
+    # test $is_core_file
+    if [[ $is_core_file ]]; then
+        mkdir -p "$tmpdir/testzip"
+        if ! tar zxf "$is_core_ok" --strip-components 1 -C "$tmpdir/testzip" &>/dev/null; then
+            msg err "${is_core_name} 文件无法通过测试."
+            exit_and_del_tmpdir
+        fi
+        [[ ! -f $tmpdir/testzip/$is_core ]] && {
+            msg err "${is_core_name} 文件无法通过测试."
+            exit_and_del_tmpdir
+        }
+    fi
+
+    # get server ip.
+    [[ ! $ip ]] && {
+        msg err "获取服务器 IP 失败."
+        exit_and_del_tmpdir
+    }
+
+    ensure_backup_functions_loaded
+    init_backup_transaction install
+
+    # create sh dir...
+    write_or_plan_file "$is_sh_dir/" safe_ensure_dir "$is_sh_dir"
+
+    # copy sh file or unzip sh zip file.
+    if [[ $local_install ]]; then
+        write_or_plan_file "$is_sh_dir/" safe_copy_contents "$PWD" "$is_sh_dir"
+    else
+        write_or_plan_file "$is_sh_dir/" backup_path_before_write "$is_sh_dir"
+        write_or_plan_file "$is_sh_dir/" tar zxf "$is_sh_ok" -C "$is_sh_dir"
+    fi
+
+    # create core bin dir
+    write_or_plan_file "$is_core_dir/bin/" safe_ensure_dir "$is_core_dir/bin"
+    # copy core file or unzip core zip file
+    if [[ $is_core_file ]]; then
+        write_or_plan_file "$is_core_dir/bin/$is_core" safe_copy_contents "$tmpdir/testzip" "$is_core_dir/bin"
+    else
+        write_or_plan_file "$is_core_dir/bin/$is_core" backup_path_before_write "$is_core_bin"
+        write_or_plan_file "$is_core_dir/bin/$is_core" tar zxf "$is_core_ok" --strip-components 1 -C "$is_core_dir/bin"
+    fi
+
+    # add aliases
+    write_or_plan_file "$is_shell_profile" safe_update_shell_aliases "$is_shell_profile"
+
+    # core command
+    write_or_plan_file "$is_sh_bin" safe_link_file "$is_sh_dir/$is_core.sh" "$is_sh_bin"
+    write_or_plan_file "${is_sh_bin/$is_core/sb}" safe_link_file "$is_sh_dir/$is_core.sh" "${is_sh_bin/$is_core/sb}"
+
+    # jq
+    [[ $jq_not_found ]] && write_or_plan_file "/usr/bin/jq" safe_copy_file "$is_jq_ok" /usr/bin/jq
+
+    # chmod
+    safe_chmod_path +x "$is_core_bin"
+    [[ -e /usr/bin/jq ]] && chmod +x /usr/bin/jq
+
+    # create log dir
+    write_or_plan_file "$is_log_dir/" safe_ensure_dir "$is_log_dir"
+
+    # show a tips msg
+    msg ok "生成配置文件..."
+
+    # create service
+    load systemd.sh
+    # Used by src/core.sh after it is sourced.
+    # shellcheck disable=SC2034
+    is_new_install=1
+    install_service $is_core &>/dev/null
+
+    # create condf dir
+    safe_ensure_dir "$is_conf_dir"
+
+    load core.sh
+    # create the base config only; protocol configs are added from the menu.
+    create config.json
+    # wait for background tasks (e.g., OpenRC service start)
+    wait
+    finalize_backup_transaction
+    show_install_complete
+    open_main_menu_if_interactive
+    # remove tmp dir and exit.
+    exit_and_del_tmpdir ok
+}

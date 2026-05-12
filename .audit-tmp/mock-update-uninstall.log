@@ -1,0 +1,12 @@
+P1	src/download.sh	download core	core update extracts tar directly into production bin after backing up only the expected binary
+P1	install.sh	execute_install	default install extracts core tar directly into production bin; extra archive files are not individually manifested
+P1	src/core.sh	create caddy	Caddy conf directory can be created with raw mkdir -p instead of safe_ensure_dir
+P1	src/caddy.sh	caddy_config new	Caddy production directories can be created with raw mkdir -p instead of safe_ensure_dir
+P1	src/dns.sh,src/log.sh	dns_set/log_set	config.json can be overwritten outside safe_write_file and outside a backup transaction
+P1	src/log.sh	log_set del/none	log files can be removed with raw rm -rf outside safe_remove_path
+P1	src/import.sh	in_conf	import deletes source xray/v2ray config with raw rm outside managed allowlist
+P1	install.sh	execute_install	jq installed to /usr/bin is chmodded with raw chmod instead of safe_chmod_path and is not TEST_ROOT mappable
+P1	src/init.sh	startup TLS key generation	TLS key/cert files under core bin are written and removed outside backup transaction
+P2	src/bbr.sh	_open_bbr	BBR modifies /etc/sysctl.conf without backup transaction; outside sing-box managed-file scope
+P2	.github/workflows/release.yml	tar	release package includes every root-level path, so committed audit artifacts would be packaged unless excluded
+[PASS] mock update/uninstall path audit root: /Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-update-root.2sQcj2

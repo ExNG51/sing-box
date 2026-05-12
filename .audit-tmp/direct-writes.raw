@@ -1,0 +1,310 @@
+.github/workflows/release.yml:18:          echo "$(cat *.sh | grep is_sh_ver=)" >> $GITHUB_ENV
+.github/workflows/release.yml:19:          echo "old=$(git tag | tail -n1)" >> $GITHUB_ENV
+tests/version-pin.sh:5:    printf '[FAIL] %s\n' "$1" >&2
+tests/version-pin.sh:14:        cat "$file" >&2
+tests/version-pin.sh:21:trap 'rm -rf "$TMP_ROOT"' EXIT
+tests/version-pin.sh:24:    printf '%s\n' "$*" >&2
+tests/audit/audit_static_control_flow.sh:11:mkdir -p "$AUDIT_DIR"
+tests/audit/audit_static_control_flow.sh:19:    printf '%s\n' "$*" | tee -a "$LOG" >/dev/null
+tests/audit/audit_static_control_flow.sh:65:            printf 'ERROR: %s\n' "$*" >&2
+tests/audit/audit_static_control_flow.sh:70:            printf 'latest-called\n' >"$tmp_audit_root/latest-called"
+tests/audit/audit_static_control_flow.sh:136:rg -n '\brm[[:space:]]+-(rf|fr|f|r)\b|cp[[:space:]]+-(rf|fr|f|a|af)\b|sed[[:space:]]+-i\b|mkdir[[:space:]]+-p\b|ln[[:space:]]+-s[f]?' install.sh src tests >"$DANGEROUS_RAW" 2>&1 || true
+tests/audit/audit_static_control_flow.sh:137:rg -n '(^|[^#])\b(cat|printf|echo)\b.*>|>\s*\$|>\s*/|>>\s*\$|>>\s*/|\brm\b|\bcp\b|\bmv\b|\bsed -i\b|\bmkdir -p\b|\bln -sf\b|\bchmod\b' install.sh src tests .github/workflows/release.yml >"$DIRECT_WRITES_RAW" 2>&1 || true
+tests/audit/audit_mock_install_paths.sh:5:    printf '[FAIL] %s\n' "$1" >&2
+tests/audit/audit_mock_install_paths.sh:14:        cat "$file" >&2
+tests/audit/audit_mock_install_paths.sh:23:        cat "$action_log" >&2
+tests/audit/audit_mock_install_paths.sh:30:mkdir -p "$AUDIT_DIR"
+tests/audit/audit_mock_install_paths.sh:38:mkdir -p "$MOCK_BIN" "$TEST_ROOT/tmp"
+tests/audit/audit_mock_install_paths.sh:44:cat >"$OS_RELEASE_FILE" <<'EOF'
+tests/audit/audit_mock_install_paths.sh:52:    cat >"$MOCK_BIN/$name" <<EOF
+tests/audit/audit_mock_install_paths.sh:54:printf '%s\n' "$name \$*" >> "$MOCK_LOG"
+tests/audit/audit_mock_install_paths.sh:57:    chmod +x "$MOCK_BIN/$name"
+tests/audit/audit_mock_install_paths.sh:64:cat >"$MOCK_BIN/uname" <<'EOF'
+tests/audit/audit_mock_install_paths.sh:72:chmod +x "$MOCK_BIN/uname"
+tests/audit/audit_mock_install_paths.sh:88:    cat "$TEST_ROOT/install-auto-protocol-matches.out" >&2
+tests/audit/audit_mock_backup_rollback.sh:5:    printf '[FAIL] %s\n' "$1" >&2
+tests/audit/audit_mock_backup_rollback.sh:14:        printf -- '--- %s ---\n' "$file" >&2
+tests/audit/audit_mock_backup_rollback.sh:15:        cat "$file" >&2
+tests/audit/audit_mock_backup_rollback.sh:25:        printf -- '--- %s ---\n' "$file" >&2
+tests/audit/audit_mock_backup_rollback.sh:26:        cat "$file" >&2
+tests/audit/audit_mock_backup_rollback.sh:41:mkdir -p "$AUDIT_DIR"
+tests/audit/audit_mock_backup_rollback.sh:68:    printf 'ERROR: %s\n' "$*" >&2
+tests/audit/audit_mock_backup_rollback.sh:73:    printf 'WARN: %s\n' "$*" >&2
+tests/audit/audit_mock_backup_rollback.sh:94:mkdir -p "$is_conf_dir" "$is_core_dir/bin" "$is_caddy_conf" "$TEST_ROOT/usr/local/bin" \
+tests/audit/audit_mock_backup_rollback.sh:97:printf 'export PATH="$PATH:/custom/bin"\n' >"$is_shell_profile"
+tests/audit/audit_mock_backup_rollback.sh:104:printf '{"old":true}\n' >"$is_config_json"
+tests/audit/audit_mock_backup_rollback.sh:105:printf '{"name":"old"}\n' >"$is_conf_dir/old.json"
+tests/audit/audit_mock_backup_rollback.sh:106:printf 'old caddyfile\n' >"$is_caddyfile"
+tests/audit/audit_mock_backup_rollback.sh:107:printf 'old service\n' >"$TEST_ROOT/lib/systemd/system/sing-box.service"
+tests/audit/audit_mock_backup_rollback.sh:148:printf '%s\n' "$latest_id" >"$is_backup_dir/latest"
+tests/audit/audit_mock_backup_rollback.sh:149:rm -f "$backup_txn/config.json"
+tests/audit/audit_mock_backup_rollback.sh:154:printf 'not json\n' >"$manifest"
+tests/audit/audit_mock_backup_rollback.sh:206:    mkdir -p "$(dirname "$remove_target_path")"
+tests/audit/audit_mock_backup_rollback.sh:207:    printf 'managed remove test\n' >"$remove_target_path"
+tests/audit/audit_mock_backup_rollback.sh:223:printf 'export PATH="$PATH:/custom/bin"\n' >"$is_shell_profile"
+tests/audit/audit_mock_backup_rollback.sh:256:printf 'export ORIGINAL_ALIAS_STATE=1\n' >"$is_shell_profile"
+tests/audit/audit_mock_backup_rollback.sh:264:if rg -n '>>/root/\.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
+tests/audit/audit_mock_backup_rollback.sh:267:if rg -n 'sed[[:space:]]+-i[[:space:]].*/\$is_core/d.*/root/\.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
+tests/audit/audit_mock_backup_rollback.sh:272:mkdir -p "$(dirname "$unsafe_path")"
+tests/audit/audit_mock_backup_rollback.sh:273:printf 'do not remove\n' >"$unsafe_path"
+tests/audit/audit_mock_backup_rollback.sh:274:if _rm "$unsafe_path" >"$TEST_ROOT/legacy-rm.out" 2>&1; then
+tests/audit/audit_mock_backup_rollback.sh:280:printf '{"name":"old"}\n' >"$helper_file"
+tests/audit/audit_mock_backup_rollback.sh:288:printf '{"copied":true}\n' >"$helper_src"
+tests/audit/audit_mock_update_uninstall_paths.sh:5:    printf '[FAIL] %s\n' "$1" >&2
+tests/audit/audit_mock_update_uninstall_paths.sh:14:        cat "$file" >&2
+tests/audit/audit_mock_update_uninstall_paths.sh:24:        cat "$file" >&2
+tests/audit/audit_mock_update_uninstall_paths.sh:31:mkdir -p "$AUDIT_DIR"
+tests/audit/audit_mock_update_uninstall_paths.sh:44:    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$RISKS"
+tests/audit/audit_mock_update_uninstall_paths.sh:56:assert_contains "$DOWNLOAD_BLOCK" 'safe_chmod_path 0755 "$is_caddy_bin"' 'caddy update must chmod through safe wrapper'
+tests/audit/audit_mock_update_uninstall_paths.sh:61:assert_not_contains "$UNINSTALL_BLOCK" 'sed -i' 'uninstall must not broad sed shell aliases'
+tests/audit/audit_mock_update_uninstall_paths.sh:62:assert_not_contains "$UNINSTALL_BLOCK" 'rm -rf' 'uninstall must not directly rm -rf production paths'
+tests/audit/audit_mock_update_uninstall_paths.sh:70:if rg -n 'tar zxf "\$tmpfile" --strip-components 1 -C "\$is_core_dir/bin"' "$REPO_ROOT/src/download.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:73:if rg -n 'tar zxf "\$is_core_ok" --strip-components 1 -C "\$is_core_dir/bin"' "$REPO_ROOT/install.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:76:if rg -n '\[\[ ! -d \$is_caddy_conf \]\] && mkdir -p \$is_caddy_conf' "$REPO_ROOT/src/core.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:77:    risk P1 src/core.sh 'create caddy' 'Caddy conf directory can be created with raw mkdir -p instead of safe_ensure_dir'
+tests/audit/audit_mock_update_uninstall_paths.sh:79:if rg -n 'mkdir -p \$is_caddy_dir \$is_caddy_dir/sites \$is_caddy_conf' "$REPO_ROOT/src/caddy.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:80:    risk P1 src/caddy.sh 'caddy_config new' 'Caddy production directories can be created with raw mkdir -p instead of safe_ensure_dir'
+tests/audit/audit_mock_update_uninstall_paths.sh:82:if rg -n 'cat <<<.*>\$is_config_json' "$REPO_ROOT/src/dns.sh" "$REPO_ROOT/src/log.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:85:if rg -n 'rm -rf \$is_log_dir/\*\.log' "$REPO_ROOT/src/log.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:86:    risk P1 src/log.sh 'log_set del/none' 'log files can be removed with raw rm -rf outside safe_remove_path'
+tests/audit/audit_mock_update_uninstall_paths.sh:88:if rg -n 'rm \$1' "$REPO_ROOT/src/import.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:89:    risk P1 src/import.sh 'in_conf' 'import deletes source xray/v2ray config with raw rm outside managed allowlist'
+tests/audit/audit_mock_update_uninstall_paths.sh:91:if rg -n 'chmod \+x /usr/bin/jq' "$REPO_ROOT/install.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:92:    risk P1 install.sh 'execute_install' 'jq installed to /usr/bin is chmodded with raw chmod instead of safe_chmod_path and is not TEST_ROOT mappable'
+tests/audit/audit_mock_update_uninstall_paths.sh:94:if rg -n '>\$is_tls_(tmp|key|cer)|rm \$is_tls_tmp' "$REPO_ROOT/src/init.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:97:if rg -n 'sed -i .* /etc/sysctl\.conf|>>/etc/sysctl\.conf' "$REPO_ROOT/src/bbr.sh" >/dev/null; then
+tests/audit/audit_mock_update_uninstall_paths.sh:100:if rg -n 'tar zcvf code\.tar\.gz \./\*' "$REPO_ROOT/.github/workflows/release.yml" >/dev/null; then
+tests/supply-chain-hardening.sh:5:    printf '[FAIL] %s\n' "$1" >&2
+tests/supply-chain-hardening.sh:10:trap 'rm -f "$MATCH_OUTPUT"' EXIT
+tests/supply-chain-hardening.sh:16:    if command -v rg >/dev/null 2>&1; then
+tests/supply-chain-hardening.sh:17:        rg -n "$pattern" "$@" >"$MATCH_OUTPUT" 2>/dev/null
+tests/supply-chain-hardening.sh:19:        grep -REn "$pattern" "$@" >"$MATCH_OUTPUT" 2>/dev/null
+tests/supply-chain-hardening.sh:27:        cat "$MATCH_OUTPUT" >&2
+tests/install-no-auto-reality.sh:5:    printf '[FAIL] %s\n' "$1" >&2
+tests/install-no-auto-reality.sh:10:trap 'rm -f "$MATCH_OUTPUT"' EXIT
+tests/install-no-auto-reality.sh:16:    if command -v rg >/dev/null 2>&1; then
+tests/install-no-auto-reality.sh:17:        rg -n "$pattern" "$@" >"$MATCH_OUTPUT" 2>/dev/null
+tests/install-no-auto-reality.sh:19:        grep -REn "$pattern" "$@" >"$MATCH_OUTPUT" 2>/dev/null
+tests/install-no-auto-reality.sh:27:        cat "$MATCH_OUTPUT" >&2
+tests/backup-rollback.sh:5:    printf '[FAIL] %s\n' "$1" >&2
+tests/backup-rollback.sh:14:        cat "$file" >&2
+tests/backup-rollback.sh:24:        cat "$file" >&2
+tests/backup-rollback.sh:38:        cat "$file" >&2
+tests/backup-rollback.sh:53:trap 'rm -rf "$TEST_ROOT"' EXIT
+tests/backup-rollback.sh:73:    printf 'ERROR: %s\n' "$*" >&2
+tests/backup-rollback.sh:78:    printf 'WARN: %s\n' "$*" >&2
+tests/backup-rollback.sh:106:    mkdir -p "$(dirname "$profile")"
+tests/backup-rollback.sh:107:    printf 'export PATH="$PATH:/custom/bin"\n' >"$profile"
+tests/backup-rollback.sh:145:    printf 'export ORIGINAL_ALIAS_STATE=1\n' >"$profile"
+tests/backup-rollback.sh:152:    rollback_latest_backup --yes >/tmp/backup-rollback-alias.out
+tests/backup-rollback.sh:156:    if grep -R 'sed -i "/$is_core/d" /root/.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
+tests/backup-rollback.sh:159:    if grep -R '>>/root/.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
+tests/backup-rollback.sh:171:    mkdir -p "$(dirname "$unsafe_path")"
+tests/backup-rollback.sh:172:    printf 'do not remove\n' >"$unsafe_path"
+tests/backup-rollback.sh:173:    if _rm "$unsafe_path" >/tmp/backup-rollback-helper-rm.out 2>&1; then
+tests/backup-rollback.sh:178:    mkdir -p "$is_conf_dir"
+tests/backup-rollback.sh:180:    printf '{"name":"old"}\n' >"$helper_file"
+tests/backup-rollback.sh:191:    printf '{"copied":true}\n' >"$helper_src"
+tests/backup-rollback.sh:246:            rm_calls="$TEST_ROOT/danger-rm-calls"
+tests/backup-rollback.sh:247:            rm() {
+tests/backup-rollback.sh:248:                printf '%s\n' "$*" >>"$rm_calls"
+tests/backup-rollback.sh:252:                printf '%s\n' "$*" >>"$backup_calls"
+tests/backup-rollback.sh:273:        12) fail "safe_remove_path must reject before rm for dangerous path: [$candidate]" ;;
+tests/backup-rollback.sh:295:    mkdir -p "$is_conf_dir" "$is_caddy_conf" "$TEST_ROOT/lib/systemd/system" "$TEST_ROOT/etc/init.d" "$TEST_ROOT/usr/local/bin"
+tests/backup-rollback.sh:297:        mkdir -p "$(dirname "$path")"
+tests/backup-rollback.sh:298:        printf 'managed remove test: %s\n' "$path" >"$path"
+tests/backup-rollback.sh:321:mkdir -p "$is_conf_dir" "$is_caddy_conf" "$TEST_ROOT/lib/systemd/system" "$TEST_ROOT/usr/local/bin"
+tests/backup-rollback.sh:322:printf '{"old":true}\n' >"$is_config_json"
+tests/backup-rollback.sh:323:printf '{"name":"old"}\n' >"$is_conf_dir/old.json"
+tests/backup-rollback.sh:324:printf 'old caddyfile\n' >"$is_caddyfile"
+tests/backup-rollback.sh:325:printf 'old service\n' >"$TEST_ROOT/lib/systemd/system/sing-box.service"
+tests/backup-rollback.sh:352:rollback_latest_backup --dry-run >/tmp/backup-rollback-dry-run.out
+tests/backup-rollback.sh:356:rollback_latest_backup --yes >/tmp/backup-rollback-run.out
+tests/backup-rollback.sh:367:cat >"$is_backup_dir/latest" <<<"$latest_id"
+tests/backup-rollback.sh:368:rm -f "$backup_txn/config.json"
+tests/backup-rollback.sh:369:if rollback_latest_backup --yes >/tmp/backup-rollback-missing.out 2>&1; then
+tests/backup-rollback.sh:373:printf 'not json\n' >"$manifest"
+tests/backup-rollback.sh:374:if rollback_latest_backup --yes >/tmp/backup-rollback-bad-manifest.out 2>&1; then
+tests/pinned-version-compat.sh:5:    printf '[FAIL] %s\n' "$1" >&2
+tests/pinned-version-compat.sh:11:trap 'rm -rf "$TEST_ROOT"' EXIT
+tests/pinned-version-compat.sh:23:mkdir -p "$CONF_DIR" "$TEST_ROOT/download" "$TEST_ROOT/extract"
+tests/pinned-version-compat.sh:58:    if command -v sha256sum >/dev/null 2>&1; then
+tests/pinned-version-compat.sh:76:[[ -x $SING_BOX_BIN ]] || chmod +x "$SING_BOX_BIN"
+tests/pinned-version-compat.sh:91:    cat >"$CONFIG_JSON" <<EOF
+tests/pinned-version-compat.sh:110:    rm -rf "$CONF_DIR"
+tests/pinned-version-compat.sh:111:    mkdir -p "$CONF_DIR"
+tests/pinned-version-compat.sh:113:    cat >"$file"
+tests/pinned-version-compat.sh:114:    "$SING_BOX_BIN" check -c "$CONFIG_JSON" -C "$CONF_DIR" >/tmp/sing-box-check-"$name".out 2>&1 || {
+tests/pinned-version-compat.sh:115:        cat /tmp/sing-box-check-"$name".out >&2
+tests/install-plan-dry-run.sh:5:    printf '[FAIL] %s\n' "$1" >&2
+tests/install-plan-dry-run.sh:11:trap 'rm -rf "$TMP_ROOT"' EXIT
+tests/install-plan-dry-run.sh:16:mkdir -p "$FAKEBIN"
+tests/install-plan-dry-run.sh:18:cat >"$OS_RELEASE_FILE" <<'EOF'
+tests/install-plan-dry-run.sh:26:    cat >"$FAKEBIN/$name" <<EOF
+tests/install-plan-dry-run.sh:28:printf '%s\n' "$name \$*" >> "$ACTION_LOG"
+tests/install-plan-dry-run.sh:31:    chmod +x "$FAKEBIN/$name"
+tests/install-plan-dry-run.sh:38:cat >"$FAKEBIN/uname" <<'EOF'
+tests/install-plan-dry-run.sh:46:chmod +x "$FAKEBIN/uname"
+tests/install-plan-dry-run.sh:61:        cat "$file" >&2
+tests/install-plan-dry-run.sh:71:        cat "$file" >&2
+tests/install-plan-dry-run.sh:79:        cat "$ACTION_LOG" >&2
+src/import.sh:50:    [[ ! $is_not_in_conf ]] && msg "导入: $1 $is_tips_msg" && rm $1
+src/version.sh:10:    printf '%s\n' "$*" >&2
+src/version.sh:14:    if type err >/dev/null 2>&1; then
+src/version.sh:17:        printf 'ERROR: %s\n' "$*" >&2
+src/version.sh:47:        type get_latest_version >/dev/null 2>&1 || {
+src/dns.sh:54:        cat <<<$(jq '.|.dns={}|del(.route.default_domain_resolver)' $is_config_json) >$is_config_json
+src/dns.sh:58:            cat <<<$(jq '.|.dns.servers=[{tag:"dns",type:"'$is_dns_type'",server:"'$is_dns_use'",domain_resolver:"local"},{tag:"local",type:"local"}]|.route.default_domain_resolver="dns"' $is_config_json) >$is_config_json
+src/dns.sh:60:            cat <<<$(jq '.dns.servers=[{address:"'$is_dns_use'",address_resolver:"local"},{tag:"local",address:"local"}]' $is_config_json) >$is_config_json
+src/log.sh:22:            rm -rf $is_log_dir/*.log
+src/log.sh:26:            rm -rf $is_log_dir/*.log
+src/log.sh:27:            cat <<<$(jq '.log={"disabled":true}' $is_config_json) >$is_config_json
+src/log.sh:30:            cat <<<$(jq '.log={output:"/var/log/'$is_core'/access.log",level:"'$is_log_level_use'","timestamp":true}' $is_config_json) >$is_config_json
+src/bbr.sh:2:	sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+src/bbr.sh:3:	sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+src/bbr.sh:4:	echo "net.ipv4.tcp_congestion_control = bbr" >>/etc/sysctl.conf
+src/bbr.sh:5:	echo "net.core.default_qdisc = fq" >>/etc/sysctl.conf
+src/bbr.sh:6:	sysctl -p &>/dev/null
+src/init.sh:25:    if type backup_warn >/dev/null 2>&1; then
+src/init.sh:27:    elif type warn >/dev/null 2>&1; then
+src/init.sh:30:        printf 'WARN: %s\n' "$*" >&2
+src/init.sh:35:    if type safe_remove_path >/dev/null 2>&1; then
+src/init.sh:49:    type safe_copy_file >/dev/null 2>&1 || {
+src/init.sh:56:        type safe_copy_contents >/dev/null 2>&1 || {
+src/init.sh:72:    type safe_sed_inplace >/dev/null 2>&1 || {
+src/init.sh:87:    type safe_ensure_dir >/dev/null 2>&1 || {
+src/init.sh:174:    $is_core_bin generate tls-keypair tls -m 456 >$is_tls_tmp
+src/init.sh:175:    awk '/BEGIN PRIVATE KEY/,/END PRIVATE KEY/' $is_tls_tmp >$is_tls_key
+src/init.sh:176:    awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' $is_tls_tmp >$is_tls_cer
+src/init.sh:177:    rm $is_tls_tmp
+src/init.sh:180:if [[ $(pgrep -f $is_core_bin 2>/dev/null || grep -l "$is_core_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+src/init.sh:200:    if [[ $(pgrep -f $is_caddy_bin 2>/dev/null || grep -l "$is_caddy_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+src/caddy.sh:5:        mkdir -p $is_caddy_dir $is_caddy_dir/sites $is_caddy_conf
+src/download.sh:18:    if type -P sha256sum >/dev/null; then
+src/download.sh:20:    elif type -P shasum >/dev/null; then
+src/download.sh:113:            rm -rf "$tmpdir"
+src/download.sh:138:            rm -rf "$tmpdir"
+src/download.sh:145:    rm -rf "$tmpdir"
+src/download.sh:151:        rm -rf "$tmpdir"
+install.sh:77:is_install_script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || pwd)
+install.sh:82:    trap 'rm -rf "$tmpdir"' EXIT INT TERM
+install.sh:162:        mkdir -p "$support_dir"
+install.sh:163:        tar zxf "$is_sh_ok" -C "$support_dir" "src/$script" 2>/dev/null || true
+install.sh:174:    type safe_write_file >/dev/null 2>&1 && return
+install.sh:193:    if type normalize_core_version >/dev/null 2>&1; then
+install.sh:243:    if type -P sha256sum >/dev/null; then
+install.sh:245:    elif type -P shasum >/dev/null; then
+install.sh:445:    echo -e "  -f, --core-file <path>          自定义 $is_core_name 文件路径, e.g., -f /root/$is_core-linux-amd64.tar.gz"
+install.sh:447:    echo -e "  -p, --proxy <addr>              使用代理下载, e.g., -p http://127.0.0.1:2333"
+install.sh:448:    echo -e "  -v, --core-version <ver>        自定义 $is_core_name 版本, e.g., -v v1.13.8"
+install.sh:467:        msg warn "安装依赖包 >${pkg}"
+install.sh:469:            apk update &>/dev/null
+install.sh:471:            apk add $pkg &>/dev/null && : >"$is_pkg_ok"
+install.sh:474:            if ! $cmd install -y $pkg &>/dev/null; then
+install.sh:475:                [[ $cmd =~ yum ]] && yum install epel-release -y &>/dev/null
+install.sh:477:                    $cmd --non-interactive refresh &>/dev/null
+install.sh:479:                    $cmd update -y &>/dev/null
+install.sh:482:                $cmd install -y $pkg &>/dev/null && : >"$is_pkg_ok"
+install.sh:531:        msg warn "下载 ${name} > ${link}"
+install.sh:534:            mv -f "$tmpfile" "$is_ok"
+install.sh:541:    export "$(_wget -4 -qO- https://one.one.one.one/cdn-cgi/trace | grep ip=)" &>/dev/null
+install.sh:542:    [[ -z $ip ]] && export "$(_wget -6 -qO- https://one.one.one.one/cdn-cgi/trace | grep ip=)" &>/dev/null
+install.sh:664:    [[ ${tmpdir:-} ]] && rm -rf "$tmpdir"
+install.sh:699:    run_or_plan "create temp directory $tmpdir" mkdir -p "$tmpdir"
+install.sh:702:        write_or_plan_file "$is_core_ok" cp -f "$is_core_file" "$is_core_ok"
+install.sh:703:        msg warn "${yellow}${is_core_name} 文件使用 > $is_core_file${none}"
+install.sh:708:        msg warn "${yellow}本地获取安装脚本 > $PWD ${none}"
+install.sh:712:        if ! timedatectl set-ntp true &>/dev/null; then
+install.sh:722:        apk update &>/dev/null
+install.sh:724:        apk add $is_pkg &>/dev/null && : >"$is_pkg_ok"
+install.sh:730:    if type -P update-ca-certificates >/dev/null; then
+install.sh:731:        update-ca-certificates &>/dev/null || true
+install.sh:756:        mkdir -p "$tmpdir/testzip"
+install.sh:757:        if ! tar zxf "$is_core_ok" --strip-components 1 -C "$tmpdir/testzip" &>/dev/null; then
+install.sh:807:    # chmod
+install.sh:809:    [[ -e /usr/bin/jq ]] && chmod +x /usr/bin/jq
+install.sh:822:    install_service $is_core &>/dev/null
+src/backup.sh:16:    if type warn >/dev/null 2>&1; then
+src/backup.sh:19:        printf 'WARN: %s\n' "$*" >&2
+src/backup.sh:24:    if type err >/dev/null 2>&1; then
+src/backup.sh:27:        printf 'ERROR: %s\n' "$*" >&2
+src/backup.sh:56:    if type -P sha256sum >/dev/null 2>&1; then
+src/backup.sh:58:    elif type -P shasum >/dev/null 2>&1; then
+src/backup.sh:164:    mkdir -p "$is_backup_dir" || {
+src/backup.sh:178:    mkdir -p "$IS_BACKUP_TXN_DIR" || {
+src/backup.sh:218:            mkdir -p "$(dirname "$backup_full")" || return 1
+src/backup.sh:219:            cp -a "$path" "$backup_full" || {
+src/backup.sh:290:    mv -f "$manifest_tmp" "$IS_BACKUP_TXN_DIR/manifest.json" || return 1
+src/backup.sh:292:    # latest 指针使用临时文件 + mv，避免读到半写入内容。
+src/backup.sh:294:    printf '%s\n' "$IS_BACKUP_TXN_ID" >"$latest_tmp" || return 1
+src/backup.sh:295:    mv -f "$latest_tmp" "$is_backup_dir/latest" || return 1
+src/backup.sh:310:    mkdir -p "$dir" || return 1
+src/backup.sh:313:        printf '%s\n' "$1" >"$tmp" || return 1
+src/backup.sh:315:        cat >"$tmp" || return 1
+src/backup.sh:317:    mv -f "$tmp" "$path"
+src/backup.sh:326:    mkdir -p "$(dirname "$path")" || return 1
+src/backup.sh:327:    printf '%s\n' "$text" >>"$path"
+src/backup.sh:333:    # mkdir -p 会创建生产目录；不存在时也记录 existed=false，便于 rollback 删除新目录入口。
+src/backup.sh:335:    mkdir -p "$path"
+src/backup.sh:344:    mkdir -p "$(dirname "$dst")" || return 1
+src/backup.sh:345:    cp -af "$src" "$dst"
+src/backup.sh:353:    mkdir -p "$dst_dir" || return 1
+src/backup.sh:354:    cp -af "$src_dir"/. "$dst_dir"/
+src/backup.sh:362:    mkdir -p "$(dirname "$dst")" || return 1
+src/backup.sh:363:    mv -f "$src" "$dst"
+src/backup.sh:371:    mkdir -p "$(dirname "$link_path")" || return 1
+src/backup.sh:372:    ln -sf "$target" "$link_path"
+src/backup.sh:437:    mkdir -p "$dir" || return 1
+src/backup.sh:440:        rm -f "$tmp"
+src/backup.sh:444:        rm -f "$tmp"
+src/backup.sh:447:    mv -f "$tmp" "$profile"
+src/backup.sh:461:        rm -f "$tmp"
+src/backup.sh:464:    mv -f "$tmp" "$profile"
+src/backup.sh:592:        rm -rf -- "$path" || return 1
+src/backup.sh:606:        rm -f "$tmp"
+src/backup.sh:609:    mv -f "$tmp" "$path"
+src/backup.sh:620:    chmod "$mode" "$@"
+src/backup.sh:624:    type -P jq >/dev/null 2>&1 || {
+src/backup.sh:658:    jq -e '.schema_version == 1 and (.files | type == "array")' "$manifest" >/dev/null 2>&1 || {
+src/backup.sh:708:    jq -e --arg pattern "$pattern" '.files[].path | test($pattern)' "$manifest" >/dev/null 2>&1
+src/backup.sh:716:    if [[ ${is_systemd:-} || $(type -P systemctl 2>/dev/null) ]]; then
+src/backup.sh:718:            systemctl daemon-reload 2>/dev/null || true
+src/backup.sh:720:            systemctl "$action" "$name" 2>/dev/null || true
+src/backup.sh:722:    elif [[ ${is_openrc:-} || $(type -P rc-service 2>/dev/null) ]]; then
+src/backup.sh:725:            rc-service "$name" "$action" 2>/dev/null || true
+src/backup.sh:751:            mkdir -p "$(dirname "$path")" || return 1
+src/backup.sh:752:            rm -rf -- "$path" || return 1
+src/backup.sh:753:            cp -a "$src" "$path" || return 1
+src/backup.sh:755:            rm -rf -- "$path" || return 1
+src/core.sh:97:if ! type -P shuf &>/dev/null; then
+src/core.sh:135:    export "$(_wget -4 -qO- https://one.one.one.one/cdn-cgi/trace | grep ip=)" &>/dev/null
+src/core.sh:136:    [[ ! $ip ]] && export "$(_wget -6 -qO- https://one.one.one.one/cdn-cgi/trace | grep ip=)" &>/dev/null
+src/core.sh:376:        [[ ! -d $is_caddy_conf ]] && mkdir -p $is_caddy_conf
+src/core.sh:593:            cp -f $is_conf_dir/$is_config_file $is_tmp_json
+src/core.sh:594:            sed -i s#$is_private_key #$is_new_private_key# $is_tmp_json
+src/core.sh:595:            $is_core_bin check -c $is_tmp_json &>/dev/null
+src/core.sh:600:            sed -i s#$is_new_private_key #$is_new_public_key# $is_tmp_json
+src/core.sh:601:            $is_core_bin check -c $is_tmp_json &>/dev/null
+src/core.sh:606:            rm -f $is_tmp_json
+src/core.sh:691:    manage stop &>/dev/null
+src/core.sh:692:    manage disable &>/dev/null
+src/core.sh:701:    rmdir "$is_conf_dir" "$is_core_dir/bin" "$is_sh_dir" "$is_core_dir" "$is_log_dir" 2>/dev/null || true
+src/core.sh:710:        manage stop caddy &>/dev/null
+src/core.sh:711:        manage disable caddy &>/dev/null
+src/core.sh:722:        rmdir "$is_caddy_conf" "$is_caddy_dir/sites" "$is_caddy_dir" 2>/dev/null || true
+src/core.sh:766:        systemctl $is_do $is_do_name 2>/dev/null
+src/core.sh:770:            rc-update add $is_do_name default 2>/dev/null
+src/core.sh:773:            rc-update del $is_do_name default 2>/dev/null
+src/core.sh:776:            rc-service $is_do_name $is_do 2>/dev/null
+src/core.sh:782:        if [[ ! $(pgrep -f $is_run_bin 2>/dev/null || grep -l "$is_run_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+src/core.sh:1076:            cat <<<"$is_new_json" >$is_test_json_save
+src/core.sh:1077:            $is_core_bin check -c $is_test_json_save &>/dev/null
+src/core.sh:1085:            rm -f $is_test_json_save
+src/core.sh:1159:                is_anytls_domain=$(jq -r '(.inbounds[0].tls.certificate_provider.domain[0] // .inbounds[0].tls.acme.domain[0]) // empty' <<<$is_json_str 2>/dev/null)
+src/core.sh:1330:        install_service caddy &>/dev/null
+src/core.sh:1341:            systemctl list-units --full -all &>/dev/null
+src/core.sh:1348:        if [[ ! $(pgrep -f $is_core_bin 2>/dev/null || grep -l "$is_core_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+src/core.sh:1350:            manage start &>/dev/null
+src/core.sh:1361:            if [[ ! $(pgrep -f $is_caddy_bin 2>/dev/null || grep -l "$is_caddy_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+src/core.sh:1363:                manage start caddy &>/dev/null
+src/core.sh:1733:    d | del | rm)

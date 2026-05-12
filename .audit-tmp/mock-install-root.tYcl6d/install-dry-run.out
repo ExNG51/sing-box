@@ -1,0 +1,43 @@
+Using pinned stable sing-box version: v1.13.8
+
+........... sing-box script ..........
+
+Install Plan
+
+System:
+- OS: Debian 12
+- Arch: amd64
+- Init: systemd
+- Package manager: apt-get
+
+Downloads:
+- sing-box core package from GitHub release v1.13.8: https://github.com/SagerNet/sing-box/releases
+- management script package from GitHub release: https://github.com/ExNG51/sing-box/releases
+- jq binary from GitHub release if jq is still unavailable after dependency installation
+- checksum / digest source: GitHub release asset digest and jq sha256sum.txt
+- download source: HTTPS-only GitHub release URLs
+- temp directory: /Volumes/JC-EXT-DATA-01/sing-box/.audit-tmp/mock-install-root.tYcl6d/tmp/sing-box-install.xxxxxx
+
+Files to write:
+- /etc/sing-box/
+- /etc/sing-box/bin/sing-box
+- /etc/sing-box/sh/
+- /etc/sing-box/conf/
+- /etc/sing-box/config.json
+- /var/log/sing-box/
+- /usr/local/bin/sing-box
+- /usr/local/bin/sb
+- /root/.bashrc
+- /usr/bin/jq when jq is not already installed
+- /etc/systemd/system/sing-box.service
+- /lib/systemd/system/sing-box.service
+
+Services:
+- create: sing-box.service
+- enable: sing-box.service
+- start: sing-box.service
+
+Ports:
+- none by default
+- protocol ports will be opened only after user explicitly adds an inbound from the menu
+
