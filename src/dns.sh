@@ -44,7 +44,7 @@ dns_set() {
         esac
     else
         is_tmp_list=(${is_dns_list[@]})
-        ask list is_dns_use null "\n请选择 DNS:\n"
+        ask list is_dns_use null "\n请选择 DNS:\n" || return 1
         if [[ $is_dns_use == "set" ]]; then
             ask string is_dns_use "请输入 DNS: "
         fi

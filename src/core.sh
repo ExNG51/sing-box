@@ -101,6 +101,8 @@ if ! type -P shuf &>/dev/null; then
             case $1 in
             -i) IFS=- read min max <<<"$2"; shift 2 ;;
             -n) n=$2; shift 2 ;;
+            -n*) n=${1#-n}; shift ;;
+            *) shift ;;
             esac
         done
         echo $(( RANDOM % (max - min + 1) + min ))
@@ -108,7 +110,7 @@ if ! type -P shuf &>/dev/null; then
 fi
 
 is_random_ss_method=${ss_method_list[$(shuf -i 4-6 -n1)]} # random only use ss2022
-is_random_servername=${servername_list[$(shuf -i 0-${#servername_list[@]} -n1) - 1]}
+is_random_servername=${servername_list[$(shuf -i 1-${#servername_list[@]} -n1) - 1]}
 
 msg() {
     echo -e "$@"
@@ -174,7 +176,7 @@ show_list() {
 is_test() {
     case $1 in
     number)
-        echo $2 | grep -E '^[1-9][0-9]?+$'
+        echo $2 | grep -E '^[1-9][0-9]*$'
         ;;
     port)
         if [[ $(is_test number $2) ]]; then
@@ -213,8 +215,18 @@ is_port_used() {
     msg "请执行: $(_yellow "${cmd} update -y; ${cmd} install net-tools -y") 来修复此问题."
 }
 
+# cleanup ask globals after one prompt.
+ask_cleanup() {
+    unset is_opt_msg is_opt_input_msg is_tmp_list is_ask_result is_default_arg is_emtpy_exit
+}
+
 # ask input a string or pick a option for list.
 ask() {
+    local is_menu_back_option=
+    local is_menu_exit_option=
+    local is_prompt_min=1
+
+    unset is_menu_back is_menu_exit
     case $1 in
     set_ss_method)
         is_tmp_list=(${ss_method_list[@]})
@@ -256,9 +268,9 @@ ask() {
         ;;
     list)
         is_ask_set=$2
-        [[ ! $is_tmp_list ]] && is_tmp_list=($3)
-        is_opt_msg=$4
-        is_opt_input_msg=$5
+        [[ ! ${is_tmp_list:-} ]] && is_tmp_list=($3)
+        is_opt_msg=${4:-}
+        is_opt_input_msg=${5:-}
         ;;
     get_config_file)
         is_tmp_list=("${is_all_json[@]}")
@@ -269,20 +281,44 @@ ask() {
         is_tmp_list=("${mainmenu[@]}")
         is_ask_set=is_main_pick
         is_emtpy_exit=1
+        is_menu_exit_option=1
         ;;
     esac
-    msg $is_opt_msg
-    [[ ! $is_opt_input_msg ]] && is_opt_input_msg="请选择 [\e[91m1-${#is_tmp_list[@]}\e[0m]:"
-    [[ $is_tmp_list ]] && show_list "${is_tmp_list[@]}"
+
+    [[ $is_main_start && ${is_tmp_list:-} && ! $is_menu_exit_option ]] && is_menu_back_option=1
+    [[ $is_menu_back_option || $is_menu_exit_option ]] && is_prompt_min=0
+
+    [[ ${is_opt_msg:-} ]] && msg "$is_opt_msg"
+    [[ ! ${is_opt_input_msg:-} ]] && is_opt_input_msg="请选择 [\e[91m${is_prompt_min}-${#is_tmp_list[@]}\e[0m]:"
+    [[ ${is_tmp_list:-} ]] && show_list "${is_tmp_list[@]}"
+    [[ $is_menu_exit_option ]] && msg "0) 退出"
+    [[ $is_menu_back_option ]] && msg "0) 返回主菜单"
     while :; do
         echo -ne $is_opt_input_msg
-        read REPLY
+        read REPLY || {
+            [[ $is_menu_exit_option || $is_emtpy_exit ]] && is_menu_exit=1
+            ask_cleanup
+            return 1
+        }
         [[ ! $REPLY && $is_emtpy_exit ]] && exit
+        if [[ $REPLY == 0 ]]; then
+            if [[ $is_menu_exit_option ]]; then
+                is_menu_exit=1
+                ask_cleanup
+                return 1
+            fi
+            if [[ $is_menu_back_option ]]; then
+                is_menu_back=1
+                msg "返回主菜单"
+                ask_cleanup
+                return 1
+            fi
+        fi
         [[ ! $REPLY && $is_default_arg ]] && export $is_ask_set=$is_default_arg && break
-        [[ "$REPLY" == "${is_str}2${is_get}3${is_opt}3" && $is_ask_set == 'is_main_pick' ]] && {
+        [[ "$REPLY" == "${is_str:-}2${is_get:-}3${is_opt:-}3" && $is_ask_set == 'is_main_pick' ]] && {
             msg "\n${is_get}2${is_str}3${is_msg}3b${is_tmp}o${is_opt}y\n" && exit
         }
-        if [[ ! $is_tmp_list ]]; then
+        if [[ ! ${is_tmp_list:-} ]]; then
             [[ $(grep port <<<$is_ask_set) ]] && {
                 [[ ! $(is_test port "$REPLY") ]] && {
                     msg "$is_err 请输入正确的端口, 可选(1-65535)"
@@ -314,13 +350,14 @@ ask() {
             }
             [[ $REPLY ]] && export $is_ask_set=$REPLY && msg "使用: ${!is_ask_set}" && break
         else
+            is_ask_result=
             [[ $(is_test number "$REPLY") ]] && is_ask_result=${is_tmp_list[$REPLY - 1]}
-            [[ $is_ask_result ]] && export $is_ask_set="$is_ask_result" && msg "选择: ${!is_ask_set}" && break
+            [[ ${is_ask_result:-} ]] && export $is_ask_set="$is_ask_result" && msg "选择: ${!is_ask_set}" && break
         fi
 
         msg "输入${is_err}"
     done
-    unset is_opt_msg is_opt_input_msg is_tmp_list is_ask_result is_default_arg is_emtpy_exit
+    ask_cleanup
 }
 
 # create file
@@ -458,7 +495,7 @@ change() {
     fi
     [[ $is_try_change ]] && return
     [[ $is_dont_auto_exit ]] && {
-        get info $1
+        get info $1 || return 1
     } || {
         [[ $is_change_id ]] && {
             is_change_msg=${change_list[$is_change_id]}
@@ -467,7 +504,7 @@ change() {
             }
             [[ $is_change_msg ]] && _green "\n快速执行: $is_change_msg"
         }
-        info $1
+        info $1 || return 1
         [[ $is_auto_get_config ]] && msg "\n自动选择: $is_config_file"
     }
     is_old_net=$net
@@ -480,7 +517,7 @@ change() {
     is_dont_show_info=
     # if not prefer args, show change list and then get change id.
     [[ ! $is_change_id ]] && {
-        ask set_change_list
+        ask set_change_list || return 1
         is_change_id=${is_can_change[$REPLY - 1]}
     }
     case $is_change_id in
@@ -560,7 +597,7 @@ change() {
         [[ $net != 'ss' ]] && err "($is_config_file) 不支持更改加密方式."
         [[ $is_auto ]] && is_new_method=$is_random_ss_method
         [[ ! $is_new_method ]] && {
-            ask set_ss_method
+            ask set_ss_method || return 1
             is_new_method=$ss_method
         }
         add $net auto auto $is_new_method
@@ -660,7 +697,9 @@ del() {
     is_dont_get_ip=1
     [[ $is_conf_dir_empty ]] && return # not found any json file.
     # get a config file
-    [[ ! $is_config_file ]] && get info $1
+    if [[ ! $is_config_file ]]; then
+        get info $1 || return 1
+    fi
     if [[ $is_config_file ]]; then
         if [[ $is_main_start && ! $is_no_del_msg ]]; then
             msg "\n是否删除配置文件?: $is_config_file"
@@ -695,7 +734,7 @@ uninstall() {
     local path
     if [[ $is_caddy ]]; then
         is_tmp_list=("卸载 $is_core_name" "卸载 ${is_core_name} & Caddy")
-        ask list is_do_uninstall
+        ask list is_do_uninstall || return 1
     else
         ask string y "是否卸载 ${is_core_name}? [y]:"
     fi
@@ -865,7 +904,9 @@ add() {
     fi
 
     # no prefer protocol
-    [[ ! $is_new_protocol ]] && ask set_protocol
+    if [[ ! $is_new_protocol ]]; then
+        ask set_protocol || return 1
+    fi
 
     if [[ ${is_new_protocol,,} == 'anytls' ]]; then
         is_core_major=$(echo "$is_core_ver" | cut -d. -f1)
@@ -928,7 +969,7 @@ add() {
     esac
 
     if [[ $is_main_start && ${is_new_protocol,,} == 'anytls' && ! $2 && ! $is_change && ! $is_gen ]]; then
-        ask set_anytls_cert
+        ask set_anytls_cert || return 1
         if [[ $is_anytls_cert == yes ]]; then
             ask string is_anytls_domain "请输入 AnyTLS 证书域名:"
             is_use_port=443
@@ -1068,7 +1109,9 @@ add() {
                 ;;
             shadowsocks)
                 # set method
-                [[ ! $ss_method ]] && ask set_ss_method
+                if [[ ! $ss_method ]]; then
+                    ask set_ss_method || return 1
+                fi
                 # set password
                 [[ ! $ss_password ]] && ask string ss_password "请设置密码:"
                 ;;
@@ -1145,11 +1188,11 @@ get() {
         [[ ${#is_all_json[@]} -eq 1 ]] && is_config_file=$is_all_json && is_auto_get_config=1
         [[ ! $is_config_file ]] && {
             [[ $is_dont_auto_exit ]] && return
-            ask get_config_file
+            ask get_config_file || return 1
         }
         ;;
     info)
-        get file $2
+        get file $2 || return 1
         if [[ $is_config_file ]]; then
             is_json_str=$(cat $is_conf_dir/"$is_config_file" | sed s#//.*##)
             is_json_data=$(jq '(.inbounds[0]|.type,.listen_port,(.users[0]|.uuid,.password,.username),.method,.password,.override_port,.override_address,(.transport|.type,.path,.headers.host),(.tls|.server_name,.reality.private_key)),(.outbounds[1].tag)' <<<$is_json_str)
@@ -1398,7 +1441,7 @@ get() {
 # show info
 info() {
     if [[ ! $is_protocol ]]; then
-        get info $1
+        get info $1 || return 1
     fi
     # is_color=$(shuf -i 41-45 -n1)
     is_color=44
@@ -1616,7 +1659,7 @@ update() {
         is_new_ver=$(resolve_core_version_policy "$VERSION_POLICY_REQUESTED_VERSION" "$VERSION_POLICY_USE_LATEST") || return 1
         [[ $is_run_ver == $is_new_ver ]] && {
             msg "\n$is_show_name 当前已经是目标版本 ($is_new_ver), 无需更新.\n"
-            exit
+            return 0
         }
         if [[ $VERSION_POLICY_REQUESTED_VERSION ]]; then
             msg "\n使用自定义版本更新 $is_show_name: $(_green $is_new_ver)\n"
@@ -1629,7 +1672,7 @@ update() {
         [[ $1 ]] && is_new_ver=v${1#v}
         [[ $is_run_ver == $is_new_ver ]] && {
             msg "\n自定义版本和当前 $is_show_name 版本一样, 无需更新.\n"
-            exit
+            return 0
         }
         if [[ $is_new_ver ]]; then
             msg "\n使用自定义版本更新 $is_show_name: $(_green $is_new_ver)\n"
@@ -1637,7 +1680,7 @@ update() {
             get_latest_version $is_update_name
             [[ $is_run_ver == $latest_ver ]] && {
                 msg "\n$is_show_name 当前已经是最新版本了.\n"
-                exit
+                return 0
             }
             msg "\n发现 $is_show_name 新版本: $(_green $latest_ver)\n"
             is_new_ver=$latest_ver
@@ -1651,72 +1694,107 @@ update() {
     [[ $is_update_name != 'sh' ]] && manage restart $is_update_name &
 }
 
+reset_menu_action_state() {
+    unset REPLY is_main_pick is_do_manage is_do_update is_do_other is_do_uninstall
+    unset is_menu_back is_menu_exit is_config_file is_auto_get_config is_all_json
+    unset is_new_protocol is_lower is_add_opts is_err_tips is_set_new_protocol is_old_net
+    unset is_change is_change_id is_change_str is_change_msg is_auto is_try_change
+    unset is_new_port is_new_host is_new_path is_new_pass is_new_uuid is_new_method
+    unset is_new_door_addr is_new_door_port is_new_private_key is_new_public_key
+    unset is_new_servername is_new_proxy_site proxy_site old_host
+    unset is_use_tls is_use_port is_use_uuid is_use_host is_use_path is_use_pass
+    unset is_use_method is_use_door_addr is_use_door_port is_use_servername
+    unset is_use_socks_user is_use_socks_pass is_main_anytls_acme is_anytls_cert
+    unset is_anytls_domain is_install_caddy is_no_auto_tls is_dont_show_info
+    unset is_dont_get_ip is_no_del_msg is_del_host is_conf_dir_empty is_client
+    unset is_test_json is_new_json is_json_add is_add_public_key json_str
+    unset is_config_name is_json_file is_protocol is_listen is_tls net net_type
+    unset host path port uuid password username ss_method ss_password door_port door_addr
+    unset is_servername is_private_key is_public_key is_socks is_socks_user is_socks_pass
+    unset is_info_show is_info_str is_url is_insecure is_color is_type is_tcp_http
+}
+
 # main menu; if no prefer args.
 is_main_menu() {
-    msg "\n------------- $is_core_name script $is_sh_ver -------------"
-    msg "$is_core_name $is_core_ver: $is_core_status"
     is_main_start=1
-    ask mainmenu
-    case $REPLY in
-    1)
-        run_with_backup_transaction add add
-        ;;
-    2)
-        run_with_backup_transaction change change
-        ;;
-    3)
-        info
-        ;;
-    4)
-        run_with_backup_transaction delete del
-        ;;
-    5)
-        ask list is_do_manage "启动 停止 重启"
-        manage $REPLY &
-        msg "\n管理状态执行: $(_green $is_do_manage)\n"
-        ;;
-    6)
-        is_tmp_list=("更新$is_core_name" "更新脚本")
-        [[ $is_caddy ]] && is_tmp_list+=("更新Caddy")
-        ask list is_do_update null "\n请选择更新:\n"
-        update $REPLY
-        ;;
-    7)
-        run_with_backup_transaction uninstall uninstall
-        ;;
-    8)
-        msg
-        load help.sh
-        show_help
-        ;;
-    9)
-        ask list is_do_other "启用BBR 查看日志 测试运行 重装脚本 设置DNS"
+    while :; do
+        reset_menu_action_state
+        msg "\n------------- $is_core_name script $is_sh_ver -------------"
+        msg "$is_core_name $is_core_ver: $is_core_status"
+        ask mainmenu || {
+            [[ ${is_menu_exit:-} ]] && break
+            continue
+        }
         case $REPLY in
         1)
-            load bbr.sh
-            _try_enable_bbr
+            run_with_backup_transaction add add
+            [[ ${is_menu_back:-} ]] && continue
             ;;
         2)
-            load log.sh
-            log_set
+            run_with_backup_transaction change change
+            [[ ${is_menu_back:-} ]] && continue
             ;;
         3)
-            get test-run
+            info
+            [[ ${is_menu_back:-} ]] && continue
             ;;
         4)
-            run_with_backup_transaction reinstall get reinstall
+            run_with_backup_transaction delete del
+            [[ ${is_menu_back:-} ]] && continue
             ;;
         5)
-            load dns.sh
-            dns_set
+            ask list is_do_manage "启动 停止 重启" || continue
+            manage $REPLY &
+            msg "\n管理状态执行: $(_green $is_do_manage)\n"
+            ;;
+        6)
+            is_tmp_list=("更新$is_core_name" "更新脚本")
+            [[ $is_caddy ]] && is_tmp_list+=("更新Caddy")
+            ask list is_do_update null "\n请选择更新:\n" || continue
+            update $REPLY
+            ;;
+        7)
+            run_with_backup_transaction uninstall uninstall
+            [[ ${is_menu_back:-} ]] && continue
+            break
+            ;;
+        8)
+            msg
+            load help.sh
+            show_help
+            ;;
+        9)
+            ask list is_do_other "启用BBR 查看日志 测试运行 重装脚本 设置DNS" || continue
+            case $REPLY in
+            1)
+                load bbr.sh
+                _try_enable_bbr
+                ;;
+            2)
+                load log.sh
+                log_set
+                ;;
+            3)
+                get test-run
+                ;;
+            4)
+                run_with_backup_transaction reinstall get reinstall
+                break
+                ;;
+            5)
+                load dns.sh
+                dns_set
+                [[ ${is_menu_back:-} ]] && continue
+                ;;
+            esac
+            ;;
+        10)
+            load help.sh
+            about
             ;;
         esac
-        ;;
-    10)
-        load help.sh
-        about
-        ;;
-    esac
+        pause
+    done
 }
 
 # check prefer args, if not exist prefer args and show main menu
