@@ -223,6 +223,13 @@ ask() {
         is_opt_input_msg="(默认\e[92m $is_default_arg\e[0m):"
         is_ask_set=ss_method
         ;;
+    set_anytls_cert)
+        is_tmp_list=("yes" "no")
+        is_default_arg=yes
+        is_opt_msg="\nAnyTLS 是否申请证书并使用域名连接?\n"
+        is_opt_input_msg="(默认\e[92m yes\e[0m):"
+        is_ask_set=is_anytls_cert
+        ;;
     set_protocol)
         is_tmp_list=(${protocol_list[@]})
         [[ $is_no_auto_tls ]] && {
@@ -294,6 +301,10 @@ ask() {
             [[ $(grep uuid <<<$is_ask_set) && ! $(is_test uuid "$REPLY") ]] && {
                 [[ ! $tmp_uuid ]] && get_uuid
                 msg "$is_err 请输入正确的 UUID, 例如: $tmp_uuid"
+                continue
+            }
+            [[ $is_ask_set == 'is_anytls_domain' && ! $(is_test domain "$REPLY") ]] && {
+                msg "$is_err 请输入正确的域名, 例如: example.com"
                 continue
             }
             [[ $(grep ^y$ <<<$is_ask_set) ]] && {
@@ -916,6 +927,15 @@ add() {
         ;;
     esac
 
+    if [[ $is_main_start && ${is_new_protocol,,} == 'anytls' && ! $2 && ! $is_change && ! $is_gen ]]; then
+        ask set_anytls_cert
+        if [[ $is_anytls_cert == yes ]]; then
+            ask string is_anytls_domain "请输入 AnyTLS 证书域名:"
+            is_use_port=443
+            is_main_anytls_acme=1
+        fi
+    fi
+
     [[ $1 && ! $is_change ]] && {
         msg "\n使用协议: $is_new_protocol"
         # err msg tips
@@ -947,7 +967,7 @@ add() {
     fi
 
     # prefer args.
-    if [[ $2 ]]; then
+    if [[ $2 || $is_main_anytls_acme ]]; then
         for v in is_use_port is_use_uuid is_use_host is_use_path is_use_pass is_use_method is_use_door_addr is_use_door_port; do
             [[ ${!v} == 'auto' ]] && unset $v
         done

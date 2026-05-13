@@ -32,6 +32,8 @@ jobs:
         run: bash tests/install-no-auto-reality.sh
       - name: install support script checks
         run: bash tests/install-support-script-load.sh
+      - name: AnyTLS menu certificate checks
+        run: bash tests/anytls-menu-certificate.sh
       - name: install command permission checks
         run: bash tests/install-command-permissions.sh
       - name: tar
