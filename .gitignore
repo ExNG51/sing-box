@@ -1,2 +1,5 @@
+.DS_Store
 .audit-tmp/
+audit-reports/
+code.tar.gz
 docs/

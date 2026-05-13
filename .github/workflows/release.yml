@@ -36,8 +36,10 @@ jobs:
         run: bash tests/anytls-menu-certificate.sh
       - name: install command permission checks
         run: bash tests/install-command-permissions.sh
+      - name: release package scope checks
+        run: bash tests/release-package-scope.sh
       - name: tar
-        run: tar zcvf code.tar.gz ./*
+        run: tar zcvf code.tar.gz LICENSE README.md install.sh sing-box.sh src
       - name: release
         uses: softprops/action-gh-release@v1
         with:
