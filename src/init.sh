@@ -47,43 +47,80 @@ ui_init_colors() {
     none=$UI_COLOR_RESET
 }
 
-ui_strip_ansi_literals() {
-    printf '%s' "$*" | sed -E 's/\\e\[[0-9;]+m//g; s/\\033\[[0-9;]+m//g'
+ui_print() {
+    printf '%b\n' "$*"
 }
 
-ui_prepare_text() {
-    local text="$*"
-
-    if [[ ! ${UI_COLOR_ENABLED:-} ]]; then
-        text=$(ui_strip_ansi_literals "$text")
-    fi
-
-    printf '%s' "$text"
+ui_print_inline() {
+    printf '%b' "$*"
 }
 
-ui_print() { printf '%b\n' "$(ui_prepare_text "$@")"; }
-ui_print_inline() { printf '%b' "$(ui_prepare_text "$@")"; }
-ui_blank() { printf '\n'; }
-ui_info() { ui_print "${UI_STYLE_BOLD}${UI_COLOR_CYAN}[i]${UI_COLOR_RESET} $*"; }
-ui_ok() { ui_print "${UI_STYLE_BOLD}${UI_COLOR_GREEN}[OK]${UI_COLOR_RESET} $*"; }
-ui_warn() { printf '%b\n' "$(ui_prepare_text "${UI_STYLE_BOLD}${UI_COLOR_YELLOW}[WARN]${UI_COLOR_RESET} $*")" >&2; }
-ui_error() { printf '%b\n' "$(ui_prepare_text "${UI_STYLE_BOLD}${UI_COLOR_RED}[ERROR]${UI_COLOR_RESET} $*")" >&2; }
-ui_dim() { ui_print "${UI_STYLE_DIM}$*${UI_COLOR_RESET}"; }
-ui_rule() { ui_print "${UI_STYLE_BOLD}${UI_COLOR_CYAN}============================================================${UI_COLOR_RESET}"; }
+ui_blank() {
+    printf '\n'
+}
+
+ui_info() {
+    printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}[i]${UI_COLOR_RESET} $*"
+}
+
+ui_ok() {
+    printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_GREEN}[OK]${UI_COLOR_RESET} $*"
+}
+
+ui_warn() {
+    printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_YELLOW}[WARN]${UI_COLOR_RESET} $*" >&2
+}
+
+ui_error() {
+    printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_RED}[ERROR]${UI_COLOR_RESET} $*" >&2
+}
+
+ui_dim() {
+    printf '%b\n' "${UI_STYLE_DIM}$*${UI_COLOR_RESET}"
+}
+
+ui_rule() {
+    printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}============================================================${UI_COLOR_RESET}"
+}
+
 ui_title() {
     ui_rule
-    ui_print "${UI_STYLE_BOLD}${UI_COLOR_CYAN}$1${UI_COLOR_RESET}"
-    [[ ${2:-} ]] && ui_print "${UI_STYLE_BOLD}${UI_COLOR_CYAN}Version: $2${UI_COLOR_RESET}"
+    printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}$1${UI_COLOR_RESET}"
+    [[ ${2:-} ]] && printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}Version: $2${UI_COLOR_RESET}"
     ui_rule
 }
-ui_menu_item() { printf ' %2s. %s\n' "$1" "$2"; }
-ui_green_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_GREEN}$*${UI_COLOR_RESET}")"; }
-ui_yellow_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_YELLOW}$*${UI_COLOR_RESET}")"; }
-ui_red_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_RED}$*${UI_COLOR_RESET}")"; }
-ui_cyan_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_CYAN}$*${UI_COLOR_RESET}")"; }
-ui_blue_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_BLUE}$*${UI_COLOR_RESET}")"; }
-ui_magenta_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_MAGENTA}$*${UI_COLOR_RESET}")"; }
-ui_red_bg_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_RED_BG}$*${UI_COLOR_RESET}")"; }
+
+ui_menu_item() {
+    printf ' %2s. %s\n' "$1" "$2"
+}
+
+ui_green_text() {
+    printf '%b' "${UI_COLOR_GREEN}$*${UI_COLOR_RESET}"
+}
+
+ui_yellow_text() {
+    printf '%b' "${UI_COLOR_YELLOW}$*${UI_COLOR_RESET}"
+}
+
+ui_red_text() {
+    printf '%b' "${UI_COLOR_RED}$*${UI_COLOR_RESET}"
+}
+
+ui_cyan_text() {
+    printf '%b' "${UI_COLOR_CYAN}$*${UI_COLOR_RESET}"
+}
+
+ui_blue_text() {
+    printf '%b' "${UI_COLOR_BLUE}$*${UI_COLOR_RESET}"
+}
+
+ui_magenta_text() {
+    printf '%b' "${UI_COLOR_MAGENTA}$*${UI_COLOR_RESET}"
+}
+
+ui_red_bg_text() {
+    printf '%b' "${UI_COLOR_RED_BG}$*${UI_COLOR_RESET}"
+}
 
 ui_init_colors
 
