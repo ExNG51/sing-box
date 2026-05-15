@@ -83,10 +83,27 @@ ui_rule() {
     printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}============================================================${UI_COLOR_RESET}"
 }
 
+ui_center_text() {
+    local plain_text=$1
+    local styled_text=${2:-$plain_text}
+    local width=${3:-60}
+    local text_width=${#plain_text}
+    local padding=0
+
+    if (( text_width < width )); then
+        padding=$(( (width - text_width) / 2 ))
+    fi
+
+    printf '%*s%b\n' "$padding" '' "$styled_text"
+}
+
 ui_title() {
+    local title=$1
+    local version=${2:-}
+
     ui_rule
-    printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}$1${UI_COLOR_RESET}"
-    [[ ${2:-} ]] && printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}Version: $2${UI_COLOR_RESET}"
+    ui_center_text "$title" "${UI_STYLE_BOLD}${UI_COLOR_CYAN}${title}${UI_COLOR_RESET}" 60
+    [[ $version ]] && ui_center_text "Version: $version" "${UI_STYLE_BOLD}${UI_COLOR_CYAN}Version: ${version}${UI_COLOR_RESET}" 60
     ui_rule
 }
 
