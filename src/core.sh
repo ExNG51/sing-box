@@ -159,6 +159,20 @@ get_pbk() {
     is_private_key=${is_tmp_pbk[0]}
 }
 
+normalize_core_version() {
+    printf '%s\n' "${1#v}" | sed -E 's/[^0-9.].*$//'
+}
+
+is_core_version_ge() {
+    local current target first
+
+    current=$(normalize_core_version "${1:-$is_core_ver}")
+    target=$(normalize_core_version "$2")
+    [[ $current && $target ]] || return 1
+    first=$(printf '%s\n%s\n' "$target" "$current" | sort -V | head -n1)
+    [[ $first == "$target" ]]
+}
+
 show_list() {
     PS3=''
     COLUMNS=1
@@ -238,7 +252,7 @@ ask() {
     set_anytls_cert)
         is_tmp_list=("yes" "no")
         is_default_arg=yes
-        is_opt_msg="\nAnyTLS 是否申请证书并使用域名连接?\n"
+        is_opt_msg="\nAnyTLS 是否使用域名并启用 sing-box ACME 自动证书?\n\n脚本将写入 sing-box ACME 自动证书配置。\n证书由 sing-box 启动后申请和续期，不是脚本预先申请。\n继续前请确保域名 DNS only，且 TCP 443 已公网可达。\n"
         is_opt_input_msg="(默认\e[92m yes\e[0m):"
         is_ask_set=is_anytls_cert
         ;;
@@ -360,6 +374,21 @@ ask() {
     ask_cleanup
 }
 
+render_server_config_json() {
+    local config_log config_dns config_ntp config_outbounds
+
+    config_log='log:{output:"/var/log/'$is_core'/access.log",level:"info","timestamp":true}'
+    config_dns='dns:{}'
+    config_ntp='ntp:{"enabled":true,"server":"time.apple.com"},'
+    if [[ -f $is_config_json ]]; then
+        [[ $(jq .ntp.enabled "$is_config_json") != "true" ]] && config_ntp=
+    else
+        [[ ! $is_ntp_on ]] && config_ntp=
+    fi
+    config_outbounds='outbounds:[{tag:"direct",type:"direct"}]'
+    jq "{$config_log,$config_dns,$config_ntp$config_outbounds}" <<<'{}'
+}
+
 # create file
 create() {
     case $1 in
@@ -379,9 +408,11 @@ create() {
         fi
         is_json_file=$is_conf_dir/$is_config_name
         # get json
+        is_add_public_key=
+        is_root_extra_json=
         [[ $is_change || ! $json_str ]] && get protocol $2
         [[ $net == "reality" ]] && is_add_public_key=",outbounds:[{type:\"direct\"},{tag:\"public_key_$is_public_key\",type:\"direct\"}]"
-        is_new_json=$(jq "{inbounds:[{tag:\"$is_config_name\",type:\"$is_protocol\",$is_listen,listen_port:$port,$json_str}]$is_add_public_key}" <<<{})
+        is_new_json=$(jq "{inbounds:[{tag:\"$is_config_name\",type:\"$is_protocol\",$is_listen,listen_port:$port,$json_str}]$is_add_public_key$is_root_extra_json}" <<<{})
         [[ $is_test_json ]] && return # tmp test
         # only show json, dont save to file.
         [[ $is_gen ]] && {
@@ -392,18 +423,23 @@ create() {
         }
         # del old file
         [[ $is_config_file ]] && is_no_del_msg=1 && del $is_config_file
-        # save json to file
-        safe_write_file "$is_json_file" "$is_new_json"
-        if [[ $is_new_install ]]; then
-            # config.json
-            create config.json
+        if [[ $is_anytls_acme_mode ]]; then
+            commit_server_config_with_validation
+            _green "AnyTLS ACME 配置已写入并通过启动验证。"
+        else
+            # save json to file
+            safe_write_file "$is_json_file" "$is_new_json"
+            if [[ $is_new_install ]]; then
+                # config.json
+                create config.json
+            fi
+            # caddy auto tls
+            [[ $is_caddy && $host && ! $is_no_auto_tls ]] && {
+                create caddy $net
+            }
+            # restart core
+            manage restart &
         fi
-        # caddy auto tls
-        [[ $is_caddy && $host && ! $is_no_auto_tls ]] && {
-            create caddy $net
-        }
-        # restart core
-        manage restart &
         ;;
     client)
         is_tls=tls
@@ -426,18 +462,9 @@ create() {
         manage restart caddy &
         ;;
     config.json)
-        is_log='log:{output:"/var/log/'$is_core'/access.log",level:"info","timestamp":true}'
-        is_dns='dns:{}'
-        is_ntp='ntp:{"enabled":true,"server":"time.apple.com"},'
-        if [[ -f $is_config_json ]]; then
-            [[ $(jq .ntp.enabled $is_config_json) != "true" ]] && is_ntp=
-        else
-            [[ ! $is_ntp_on ]] && is_ntp=
-        fi
-        is_outbounds='outbounds:[{tag:"direct",type:"direct"}]'
-        is_server_config_json=$(jq "{$is_log,$is_dns,$is_ntp$is_outbounds}" <<<{})
+        is_server_config_json=$(render_server_config_json)
         safe_write_file "$is_config_json" "$is_server_config_json"
-        manage restart &
+        [[ ! $is_skip_config_restart ]] && manage restart &
         ;;
     esac
 }
@@ -842,6 +869,254 @@ manage() {
     }
 }
 
+assert_anytls_core_version() {
+    # 中文注释：AnyTLS 从 sing-box 1.12.0 起可用。
+    is_core_version_ge "$is_core_ver" "1.12.0" || {
+        err "当前 sing-box 版本 ($is_core_ver) 不支持 AnyTLS，请先升级 sing-box core 到 1.12.0 或更高版本。"
+    }
+}
+
+assert_core_acme_capability() {
+    local version_output
+
+    version_output=$($is_core_bin version 2>/dev/null || true)
+
+    # 中文注释：如果 version 输出包含 tags 信息，则必须包含 with_acme。
+    if grep -qi 'tags:' <<<"$version_output"; then
+        grep -qw 'with_acme' <<<"$version_output" || {
+            err "当前 sing-box core 未包含 with_acme，无法使用 ACME 自动证书。"
+        }
+    else
+        warn "无法从 sing-box version 输出确认 with_acme；后续将依赖 sing-box check/run 验证。"
+    fi
+}
+
+assert_anytls_acme_port_available() {
+    if [[ $(is_test port_used 443) ]]; then
+        err "TCP 443 已被占用，AnyTLS ACME 域名模式无法继续。请先停止占用 443 的服务。"
+    fi
+}
+
+assert_anytls_acme_domain_dns() {
+    local domain=$1
+    local server_ipv4 server_ipv6 domain_a_json domain_aaaa_json
+    local domain_a_records domain_aaaa_records
+    local needs_confirm=
+
+    # 中文注释：优先单独探测公网 IPv4 / IPv6；如果失败，再回退到当前脚本已探测的 ip。
+    server_ipv4=$(_wget -4 -qO- https://one.one.one.one/cdn-cgi/trace 2>/dev/null | awk -F= '/^ip=/{print $2; exit}')
+    server_ipv6=$(_wget -6 -qO- https://one.one.one.one/cdn-cgi/trace 2>/dev/null | awk -F= '/^ip=/{print $2; exit}')
+    [[ ! $server_ipv4 && ${ip:-} && $ip != *:* ]] && server_ipv4=$ip
+    [[ ! $server_ipv6 && ${ip:-} == *:* ]] && server_ipv6=$ip
+
+    domain_a_json=$(_wget -qO- --header="accept: application/dns-json" "https://one.one.one.one/dns-query?name=$domain&type=A" 2>/dev/null || true)
+    domain_aaaa_json=$(_wget -qO- --header="accept: application/dns-json" "https://one.one.one.one/dns-query?name=$domain&type=AAAA" 2>/dev/null || true)
+    domain_a_records=$(jq -r '.Answer[]? | select(.type == 1) | .data' <<<"$domain_a_json" 2>/dev/null || true)
+    domain_aaaa_records=$(jq -r '.Answer[]? | select(.type == 28) | .data' <<<"$domain_aaaa_json" 2>/dev/null || true)
+
+    [[ ! $domain_a_records && ! $domain_aaaa_records ]] && {
+        err "域名 ($domain) 未查询到 A 或 AAAA 记录，AnyTLS ACME 无法继续。"
+    }
+
+    [[ $server_ipv4 ]] && msg "当前服务器 IPv4: $server_ipv4"
+    [[ $server_ipv6 ]] && msg "当前服务器 IPv6: $server_ipv6"
+
+    if [[ $domain_a_records ]]; then
+        msg "域名 A 记录: $(tr '\n' ' ' <<<"$domain_a_records" | sed 's/[[:space:]]\+$//')"
+        if [[ $server_ipv4 ]]; then
+            grep -Fxq "$server_ipv4" <<<"$domain_a_records" || {
+                err "域名 ($domain) 的 A 记录未指向当前服务器 IPv4 ($server_ipv4)。"
+            }
+            if grep -Fvx "$server_ipv4" <<<"$domain_a_records" >/dev/null 2>&1; then
+                warn "检测到多条 A 记录，其中部分不匹配当前服务器 IPv4 ($server_ipv4)。"
+                needs_confirm=1
+            fi
+        else
+            warn "无法确认当前服务器公网 IPv4，A 记录检查只能依赖后续 sing-box check/run。"
+            needs_confirm=1
+        fi
+    fi
+
+    if [[ $domain_aaaa_records ]]; then
+        msg "域名 AAAA 记录: $(tr '\n' ' ' <<<"$domain_aaaa_records" | sed 's/[[:space:]]\+$//')"
+        if [[ $server_ipv6 ]]; then
+            grep -Fxq "$server_ipv6" <<<"$domain_aaaa_records" || {
+                err "域名 ($domain) 的 AAAA 记录未指向当前服务器 IPv6 ($server_ipv6)。"
+            }
+            if grep -Fvx "$server_ipv6" <<<"$domain_aaaa_records" >/dev/null 2>&1; then
+                warn "检测到多条 AAAA 记录，其中部分不匹配当前服务器 IPv6 ($server_ipv6)。"
+                needs_confirm=1
+            fi
+        else
+            warn "当前服务器未检测到公网 IPv6，但域名存在 AAAA 记录。"
+            needs_confirm=1
+        fi
+    fi
+
+    warn "脚本无法自动确认域名是否为 Cloudflare DNS only。"
+    needs_confirm=1
+
+    if [[ $needs_confirm && $is_main_start ]]; then
+        ask string y "我已确认域名为 DNS only，且所有 A / AAAA 记录均可到达本机 [y]:"
+    elif [[ $needs_confirm ]]; then
+        warn "请确认域名为 DNS only，且所有 A / AAAA 记录均可到达本机。"
+    fi
+}
+
+preflight_anytls_acme() {
+    # 中文注释：仅 AnyTLS 域名 / ACME 模式调用；任何硬失败都必须发生在生产配置写入前。
+    assert_anytls_core_version
+    assert_core_acme_capability
+    assert_anytls_acme_domain_dns "$is_anytls_acme_domain"
+    assert_anytls_acme_port_available
+
+    load firewall.sh
+    ensure_anytls_acme_firewall_443
+    warn_anytls_acme_external_firewall
+}
+
+ensure_server_config_json_exists() {
+    local server_config_json
+
+    [[ -f $is_config_json ]] && return 0
+    server_config_json=$(render_server_config_json) || return 1
+    safe_write_file "$is_config_json" "$server_config_json" || return 1
+}
+
+check_pending_server_config() {
+    local tmp_conf_dir tmp_file check_log
+
+    tmp_conf_dir=$(mktemp -d "${TMPDIR:-/tmp}/sing-box-conf-check.XXXXXX") || {
+        err "创建临时配置目录失败。"
+    }
+    check_log=$(mktemp "${TMPDIR:-/tmp}/sing-box-check.XXXXXX") || {
+        rm -rf "$tmp_conf_dir"
+        err "创建临时检查日志失败。"
+    }
+
+    cp -a "$is_conf_dir"/. "$tmp_conf_dir"/ 2>/dev/null || true
+
+    tmp_file="$tmp_conf_dir/$is_config_name"
+    printf '%s\n' "$is_new_json" >"$tmp_file" || {
+        rm -rf "$tmp_conf_dir"
+        rm -f "$check_log"
+        err "写入临时配置失败。"
+    }
+
+    if ! $is_core_bin check -c "$is_config_json" -C "$tmp_conf_dir" >"$check_log" 2>&1; then
+        cat "$check_log"
+        rm -rf "$tmp_conf_dir"
+        rm -f "$check_log"
+        return 1
+    fi
+
+    rm -rf "$tmp_conf_dir"
+    rm -f "$check_log"
+}
+
+is_core_process_running() {
+    if pgrep -f "$is_core_bin" >/dev/null 2>&1; then
+        return 0
+    fi
+    grep -l "$is_core_bin" /proc/*/cmdline >/dev/null 2>&1
+}
+
+restart_core_and_verify() {
+    local run_log old_no_manage_msg=
+
+    old_no_manage_msg=${is_no_manage_msg-}
+    is_no_manage_msg=1
+    manage restart || true
+    if [[ $old_no_manage_msg ]]; then
+        is_no_manage_msg=$old_no_manage_msg
+    else
+        unset is_no_manage_msg
+    fi
+
+    if is_core_process_running; then
+        return 0
+    fi
+
+    warn "sing-box 重启失败，准备输出前台测试日志。"
+
+    run_log=$(mktemp "${TMPDIR:-/tmp}/sing-box-run.XXXXXX") || return 1
+    $is_core_bin run -c "$is_config_json" -C "$is_conf_dir" >"$run_log" 2>&1
+    cat "$run_log"
+    rm -f "$run_log"
+
+    return 1
+}
+
+print_anytls_acme_failure_guidance() {
+    msg
+    msg "AnyTLS ACME 添加失败。"
+    msg
+    msg "已执行检查："
+    msg "- sing-box version"
+    msg "- ACME capability"
+    msg "- DNS A / AAAA"
+    msg "- TCP 443 local availability"
+    msg "- local firewall backend"
+    msg "- sing-box config check"
+    msg "- sing-box restart"
+    msg
+    msg "请继续人工检查："
+    msg "1. 云厂商安全组是否放行 TCP 443"
+    msg "2. Cloudflare 是否为 DNS only"
+    msg "3. 域名是否存在错误 AAAA 记录"
+    msg "4. Let's Encrypt 是否触发 rate limit"
+    msg "5. sing-box core 是否包含 with_acme"
+    msg "6. journalctl -u sing-box -n 200 --no-pager"
+    msg
+}
+
+rollback_or_remove_failed_anytls_config() {
+    # 中文注释：优先使用现有 rollback 机制；如果不可用，至少删除刚写入的新配置。
+    if type rollback_latest_backup >/dev/null 2>&1; then
+        rollback_latest_backup --yes || {
+            warn "自动 rollback 失败，尝试删除新 AnyTLS 配置。"
+            safe_remove_path "$is_json_file" || warn "删除新 AnyTLS 配置失败: $is_json_file"
+            manage restart || true
+        }
+        return
+    fi
+
+    warn "未找到 rollback_latest_backup，尝试删除新 AnyTLS 配置。"
+    safe_remove_path "$is_json_file" || warn "删除新 AnyTLS 配置失败: $is_json_file"
+    manage restart || true
+}
+
+commit_server_config_with_validation() {
+    local should_finalize=false
+
+    begin_backup_transaction_if_needed "add-anytls-acme" && should_finalize=true
+
+    ensure_server_config_json_exists || return 1
+
+    if ! check_pending_server_config; then
+        print_anytls_acme_failure_guidance
+        err "sing-box 配置检查失败，未写入生产配置。"
+    fi
+
+    if [[ $is_anytls_acme_data_dir ]]; then
+        safe_ensure_dir "$is_anytls_acme_data_dir" || return 1
+    fi
+
+    safe_write_file "$is_json_file" "$is_new_json" || return 1
+
+    if ! restart_core_and_verify; then
+        warn "AnyTLS ACME 配置导致 sing-box 启动失败，开始回滚。"
+        [[ $IS_BACKUP_ACTIVE == true ]] && finalize_backup_transaction
+        rollback_or_remove_failed_anytls_config
+        print_anytls_acme_failure_guidance
+        err "AnyTLS ACME 添加失败，已尝试回滚。请根据上方日志检查 DNS、TCP 443、防火墙、ACME 限流或 with_acme。"
+    fi
+
+    if [[ $should_finalize == true || $IS_BACKUP_ACTIVE == true ]]; then
+        finalize_backup_transaction
+    fi
+}
+
 run_with_backup_transaction() {
     local operation=$1
     local should_finalize=false
@@ -908,13 +1183,7 @@ add() {
         ask set_protocol || return 1
     fi
 
-    if [[ ${is_new_protocol,,} == 'anytls' ]]; then
-        is_core_major=$(echo "$is_core_ver" | cut -d. -f1)
-        is_core_minor=$(echo "$is_core_ver" | cut -d. -f2)
-        if [[ ${is_core_major:-0} -lt 1 || ${is_core_major:-0} -eq 1 && ${is_core_minor:-0} -lt 12 ]]; then
-            err "当前 sing-box 版本 ($is_core_ver) 不支持 AnyTLS，请先升级 sing-box core 到 1.12.0 或更高版本。"
-        fi
-    fi
+    [[ ${is_new_protocol,,} == 'anytls' ]] && assert_anytls_core_version
 
     case ${is_new_protocol,,} in
     *-tls)
@@ -1017,9 +1286,13 @@ add() {
             [[ ! $(is_test port ${is_use_port}) ]] && {
                 err "($is_use_port) 不是一个有效的端口. $is_err_tips"
             }
-            [[ $(is_test port_used $is_use_port) && ! $is_gen ]] && {
-                err "无法使用 ($is_use_port) 端口. $is_err_tips"
-            }
+            if [[ $(is_test port_used $is_use_port) && ! $is_gen ]]; then
+                if [[ ${is_new_protocol,,} == 'anytls' && $is_anytls_domain && ! $is_change ]]; then
+                    :
+                else
+                    err "无法使用 ($is_use_port) 端口. $is_err_tips"
+                fi
+            fi
             port=$is_use_port
         fi
         if [[ $is_use_door_port ]]; then
@@ -1065,12 +1338,15 @@ add() {
         [[ $is_use_socks_pass ]] && is_socks_pass=$is_use_socks_pass
     fi
 
-    # anytls with domain (ACME TLS)
-    if [[ $is_anytls_domain && ! $is_change && ! $is_gen ]]; then
-        get_ip
-        host=$is_anytls_domain
-        get host-test
-        host=
+    if [[ ${is_new_protocol,,} == 'anytls' && $is_anytls_domain && ! $is_change && ! $is_gen ]]; then
+        [[ $port && $port != 443 ]] && {
+            err "AnyTLS ACME 域名模式固定使用 TCP 443。"
+        }
+        is_anytls_acme_mode=1
+        is_anytls_acme_domain=$is_anytls_domain
+        is_anytls_acme_port=443
+        port=$is_anytls_acme_port
+        preflight_anytls_acme
     fi
 
     if [[ $is_use_tls ]]; then
@@ -1219,7 +1495,7 @@ get() {
 
             # extract anytls ACME domain
             [[ $is_protocol == 'anytls' ]] && {
-                is_anytls_domain=$(jq -r '(.inbounds[0].tls.certificate_provider.domain[0] // .inbounds[0].tls.acme.domain[0]) // empty' <<<$is_json_str 2>/dev/null)
+                is_anytls_domain=$(jq -r '. as $root | ((($root.inbounds[0].tls.certificate_provider // empty) as $provider_tag | ($root.certificate_providers[]? | select(.tag == $provider_tag) | .domain[0])) // $root.inbounds[0].tls.acme.domain[0]) // empty' <<<$is_json_str 2>/dev/null)
             }
 
             is_config_name=$is_config_file
@@ -1292,12 +1568,14 @@ get() {
             [[ ! $password ]] && password=$uuid
             is_users="users:[{password:\"$password\"}]"
             if [[ $is_anytls_domain ]]; then
-                # sing-box >= 1.14.0 uses certificate_provider; older uses acme
-                is_core_minor=$(echo "$is_core_ver" | cut -d. -f2)
-                if [[ ${is_core_minor:-0} -ge 14 ]]; then
-                    is_anytls_tls="tls:{enabled:true,certificate_provider:{type:\"acme\",domain:[\"$is_anytls_domain\"]}}"
+                is_anytls_acme_domain=${is_anytls_acme_domain:-$is_anytls_domain}
+                is_anytls_acme_data_dir=${is_anytls_acme_data_dir:-$is_core_dir/acme}
+                if is_core_version_ge "$is_core_ver" "1.14.0"; then
+                    is_anytls_acme_tag="acme-${is_anytls_acme_domain//[^A-Za-z0-9_.-]/-}"
+                    is_anytls_tls="tls:{enabled:true,certificate_provider:\"$is_anytls_acme_tag\"}"
+                    is_root_extra_json=",certificate_providers:[{type:\"acme\",tag:\"$is_anytls_acme_tag\",domain:[\"$is_anytls_acme_domain\"],data_directory:\"$is_anytls_acme_data_dir\"}]"
                 else
-                    is_anytls_tls="tls:{enabled:true,acme:{domain:[\"$is_anytls_domain\"]}}"
+                    is_anytls_tls="tls:{enabled:true,acme:{domain:[\"$is_anytls_acme_domain\"],data_directory:\"$is_anytls_acme_data_dir\"}}"
                 fi
             else
                 is_anytls_tls="${is_tls_json/alpn\:\[\"h3\"\],/}"
@@ -1705,7 +1983,9 @@ reset_menu_action_state() {
     unset is_use_tls is_use_port is_use_uuid is_use_host is_use_path is_use_pass
     unset is_use_method is_use_door_addr is_use_door_port is_use_servername
     unset is_use_socks_user is_use_socks_pass is_main_anytls_acme is_anytls_cert
-    unset is_anytls_domain is_install_caddy is_no_auto_tls is_dont_show_info
+    unset is_anytls_domain is_anytls_acme_mode is_anytls_acme_domain is_anytls_acme_port
+    unset is_anytls_acme_tag is_anytls_acme_data_dir is_root_extra_json
+    unset is_install_caddy is_no_auto_tls is_dont_show_info is_skip_config_restart
     unset is_dont_get_ip is_no_del_msg is_del_host is_conf_dir_empty is_client
     unset is_test_json is_new_json is_json_add is_add_public_key json_str
     unset is_config_name is_json_file is_protocol is_listen is_tls net net_type

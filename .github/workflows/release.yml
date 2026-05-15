@@ -34,6 +34,8 @@ jobs:
         run: bash tests/install-support-script-load.sh
       - name: AnyTLS menu certificate checks
         run: bash tests/anytls-menu-certificate.sh
+      - name: AnyTLS ACME transaction checks
+        run: bash tests/anytls-acme-transaction.sh
       - name: menu navigation checks
         run: bash tests/menu-navigation.sh
       - name: install command permission checks
