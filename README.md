@@ -22,7 +22,7 @@
 bash <(curl -fsSL https://raw.githubusercontent.com/ExNG51/sing-box/main/install.sh)
 ```
 
-安装完成后不会自动创建代理协议配置。请进入菜单或使用命令手动添加需要的协议。
+安装完成后不会自动创建任何代理协议配置。请进入菜单或使用命令手动添加需要的协议。
 
 ```bash
 sing-box
