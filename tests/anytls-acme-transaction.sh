@@ -738,6 +738,514 @@ EOF
         'fallback rollback path must restart sing-box after removing the bad config'
 }
 
+run_systemd_sandbox_checks() {
+    local log
+    log="$TEST_ROOT/systemd-sandbox.log"
+
+    assert_match 'ensure_anytls_acme_systemd_writable_paths' src/core.sh \
+        'AnyTLS ACME flow must define a dedicated systemd sandbox writable path helper'
+    assert_match 'ReadWritePaths=' src/core.sh \
+        'AnyTLS ACME systemd override must render ReadWritePaths content'
+    assert_match '10-anytls-acme\.conf' src/core.sh \
+        'AnyTLS ACME systemd override must use an isolated drop-in filename'
+    assert_match 'systemctl daemon-reload' src/core.sh \
+        'AnyTLS ACME systemd override must reload systemd after writing the drop-in'
+    assert_no_match 'service\.d/override\.conf' src/core.sh \
+        'AnyTLS ACME systemd helper must not overwrite override.conf'
+    assert_no_match 'safe_write_file /lib/systemd/system/\$\{is_core:-sing-box\}\.service' src/core.sh \
+        'AnyTLS ACME systemd helper must not rewrite the primary systemd unit file'
+
+    : >"$log"
+    TEST_SD_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+msg() { printf 'MSG:%s\n' "$*" >>"$TEST_SD_LOG"; }
+warn() { printf 'WARN:%s\n' "$*" >>"$TEST_SD_LOG"; }
+err() {
+    printf 'ERR:%s\n' "$*" >>"$TEST_SD_LOG"
+    return 1
+}
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_SD_LOG"
+    printf 'content:%s\n' "$2" >>"$TEST_SD_LOG"
+    return 0
+}
+systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$TEST_SD_LOG"
+    case "$*" in
+    'show sing-box -p ProtectSystem --value')
+        printf 'full\n'
+        ;;
+    'show sing-box -p ReadWritePaths --value')
+        printf '\n'
+        ;;
+    'daemon-reload')
+        return 0
+        ;;
+    esac
+}
+
+is_systemd=1
+is_anytls_acme_mode=1
+is_anytls_acme_data_dir=/etc/sing-box/acme
+is_log_dir=/var/log/sing-box
+
+ensure_anytls_acme_systemd_writable_paths
+EOF
+    assert_log_contains "$log" 'mkdir:/etc/systemd/system/sing-box.service.d' \
+        'ProtectSystem=full with empty ReadWritePaths must create the service drop-in directory'
+    assert_log_contains "$log" 'write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf' \
+        'ProtectSystem=full with empty ReadWritePaths must write the isolated AnyTLS ACME drop-in'
+    assert_log_contains "$log" 'content:[Service]' \
+        'AnyTLS ACME systemd override must render a [Service] section'
+    assert_log_contains "$log" 'ReadWritePaths=/etc/sing-box/acme /var/log/sing-box' \
+        'AnyTLS ACME systemd override must grant writes to ACME storage and the sing-box log directory'
+    assert_log_contains "$log" 'systemctl:daemon-reload' \
+        'ProtectSystem=full with empty ReadWritePaths must reload systemd after writing the drop-in'
+
+    : >"$log"
+    TEST_SD_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+msg() { :; }
+warn() { :; }
+err() {
+    printf 'ERR:%s\n' "$*" >&2
+    return 1
+}
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$TEST_SD_LOG"
+    case "$*" in
+    'show sing-box -p ProtectSystem --value')
+        printf 'strict\n'
+        ;;
+    'show sing-box -p ReadWritePaths --value')
+        printf '\n'
+        ;;
+    'daemon-reload')
+        return 0
+        ;;
+    esac
+}
+
+is_systemd=1
+is_anytls_acme_mode=1
+is_anytls_acme_data_dir=/etc/sing-box/acme
+
+ensure_anytls_acme_systemd_writable_paths
+EOF
+    assert_log_contains "$log" 'write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf' \
+        'ProtectSystem=strict with empty ReadWritePaths must also write the AnyTLS ACME drop-in'
+
+    : >"$log"
+    TEST_SD_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+msg() { :; }
+warn() { :; }
+err() {
+    printf 'ERR:%s\n' "$*" >&2
+    return 1
+}
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$TEST_SD_LOG"
+    case "$*" in
+    'show sing-box -p ProtectSystem --value')
+        printf 'full\n'
+        ;;
+    'show sing-box -p ReadWritePaths --value')
+        printf '/etc/sing-box/acme /var/log/sing-box\n'
+        ;;
+    'daemon-reload')
+        return 0
+        ;;
+    esac
+}
+
+is_systemd=1
+is_anytls_acme_mode=1
+is_anytls_acme_data_dir=/etc/sing-box/acme
+
+ensure_anytls_acme_systemd_writable_paths
+EOF
+    assert_log_not_contains "$log" 'write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf' \
+        'Existing ReadWritePaths entries must suppress AnyTLS ACME override rewrites'
+    assert_log_not_contains "$log" 'systemctl:daemon-reload' \
+        'Existing ReadWritePaths entries must skip daemon-reload'
+
+    : >"$log"
+    TEST_SD_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$TEST_SD_LOG"
+    case "$*" in
+    'show sing-box -p ProtectSystem --value')
+        printf '\n'
+        ;;
+    'show sing-box -p ReadWritePaths --value')
+        printf '\n'
+        ;;
+    'daemon-reload')
+        return 0
+        ;;
+    esac
+}
+
+is_systemd=1
+is_anytls_acme_mode=1
+is_anytls_acme_data_dir=/etc/sing-box/acme
+
+ensure_anytls_acme_systemd_writable_paths
+EOF
+    assert_log_not_contains "$log" 'write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf' \
+        'Empty ProtectSystem must skip AnyTLS ACME systemd override writes'
+    assert_log_not_contains "$log" 'systemctl:daemon-reload' \
+        'Empty ProtectSystem must skip daemon-reload'
+
+    : >"$log"
+    TEST_SD_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$TEST_SD_LOG"
+    case "$*" in
+    'show sing-box -p ProtectSystem --value')
+        printf 'no\n'
+        ;;
+    'show sing-box -p ReadWritePaths --value')
+        printf '\n'
+        ;;
+    'daemon-reload')
+        return 0
+        ;;
+    esac
+}
+
+is_systemd=1
+is_anytls_acme_mode=1
+is_anytls_acme_data_dir=/etc/sing-box/acme
+
+ensure_anytls_acme_systemd_writable_paths
+EOF
+    assert_log_not_contains "$log" 'write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf' \
+        'ProtectSystem=no must skip AnyTLS ACME systemd override writes'
+    assert_log_not_contains "$log" 'systemctl:daemon-reload' \
+        'ProtectSystem=no must skip daemon-reload'
+
+    : >"$log"
+    TEST_SD_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$TEST_SD_LOG"
+    return 0
+}
+
+unset is_systemd
+is_anytls_acme_mode=1
+is_anytls_acme_data_dir=/etc/sing-box/acme
+
+ensure_anytls_acme_systemd_writable_paths
+EOF
+    assert_log_not_contains "$log" 'write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf' \
+        'Non-systemd environments must skip AnyTLS ACME systemd override writes'
+    assert_log_not_contains "$log" 'systemctl:' \
+        'Non-systemd environments must not query systemctl'
+
+    : >"$log"
+    TEST_SD_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$TEST_SD_LOG"
+    return 0
+}
+
+is_systemd=1
+unset is_anytls_acme_mode
+is_anytls_acme_data_dir=/etc/sing-box/acme
+
+ensure_anytls_acme_systemd_writable_paths
+EOF
+    assert_log_not_contains "$log" 'write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf' \
+        'Non-AnyTLS ACME flows must skip systemd override writes'
+    assert_log_not_contains "$log" 'systemctl:' \
+        'Non-AnyTLS ACME flows must not query systemctl'
+
+    : >"$log"
+    TEST_SD_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+msg() { printf 'MSG:%s\n' "$*" >>"$TEST_SD_LOG"; }
+warn() { printf 'WARN:%s\n' "$*" >>"$TEST_SD_LOG"; }
+err() {
+    printf 'ERR:%s\n' "$*" >>"$TEST_SD_LOG"
+    return 1
+}
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$TEST_SD_LOG"
+    case "$*" in
+    'show sing-box -p ProtectSystem --value')
+        printf 'full\n'
+        ;;
+    'show sing-box -p ReadWritePaths --value')
+        printf '\n'
+        ;;
+    'daemon-reload')
+        return 1
+        ;;
+    esac
+}
+
+is_systemd=1
+is_anytls_acme_mode=1
+is_anytls_acme_data_dir=/etc/sing-box/acme
+
+ensure_anytls_acme_systemd_writable_paths && exit 1
+EOF
+    assert_log_contains "$log" 'write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf' \
+        'daemon-reload failure path must still write the AnyTLS ACME drop-in before failing'
+    assert_log_contains "$log" 'systemctl:daemon-reload' \
+        'daemon-reload failure path must attempt a systemd reload'
+    assert_log_contains "$log" 'ERR:systemd daemon-reload 失败，无法应用 AnyTLS ACME 可写路径 override。' \
+        'daemon-reload failure path must return a concrete AnyTLS ACME systemd error'
+
+    : >"$log"
+    TEST_SD_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+msg() { printf 'MSG:%s\n' "$*" >>"$TEST_SD_LOG"; }
+warn() { printf 'WARN:%s\n' "$*" >>"$TEST_SD_LOG"; }
+err() {
+    printf 'ERR:%s\n' "$*" >>"$TEST_SD_LOG"
+    return 1
+}
+begin_backup_transaction_if_needed() {
+    printf 'begin\n' >>"$TEST_SD_LOG"
+    IS_BACKUP_ACTIVE=true
+    return 0
+}
+finalize_backup_transaction() {
+    printf 'finalize\n' >>"$TEST_SD_LOG"
+    IS_BACKUP_ACTIVE=false
+    return 0
+}
+check_pending_server_config() {
+    printf 'check\n' >>"$TEST_SD_LOG"
+    return 0
+}
+render_server_config_json() {
+    printf '%s\n' '{"log":{}}'
+}
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+restart_core_and_verify() {
+    printf 'restart\n' >>"$TEST_SD_LOG"
+    return 0
+}
+rollback_latest_backup() {
+    printf 'rollback:%s\n' "$*" >>"$TEST_SD_LOG"
+    return 0
+}
+systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$TEST_SD_LOG"
+    case "$*" in
+    'show sing-box -p ProtectSystem --value')
+        printf 'full\n'
+        ;;
+    'show sing-box -p ReadWritePaths --value')
+        printf '\n'
+        ;;
+    'daemon-reload')
+        return 1
+        ;;
+    esac
+}
+
+IS_BACKUP_ACTIVE=false
+is_systemd=1
+is_anytls_acme_mode=1
+is_config_json=/etc/sing-box/config.json
+is_anytls_acme_data_dir=/etc/sing-box/acme
+is_json_file=/etc/sing-box/conf/AnyTLS-example.com.json
+is_new_json='{"inbounds":[]}'
+
+commit_server_config_with_validation && exit 1
+EOF
+    assert_order '^check$' '^begin$' "$log" \
+        'systemd sandbox failure path must still validate before opening the transaction'
+    assert_order '^begin$' '^mkdir:/etc/sing-box/acme$' "$log" \
+        'systemd sandbox failure path must create the ACME data directory inside the transaction'
+    assert_order '^mkdir:/etc/sing-box/acme$' '^write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf$' "$log" \
+        'systemd sandbox failure path must write the drop-in after ensuring the ACME data directory'
+    assert_order '^write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf$' '^finalize$' "$log" \
+        'systemd sandbox failure path must finalize the active transaction after writing the drop-in'
+    assert_order '^finalize$' '^rollback:--yes$' "$log" \
+        'systemd sandbox failure path must finalize before rollback'
+    assert_log_not_contains "$log" 'write:/etc/sing-box/conf/AnyTLS-example.com.json' \
+        'systemd sandbox failure path must not continue to write the AnyTLS inbound after daemon-reload fails'
+    assert_log_not_contains "$log" 'restart' \
+        'systemd sandbox failure path must not restart sing-box after daemon-reload fails'
+
+    : >"$log"
+    TEST_SD_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+msg() { printf 'MSG:%s\n' "$*" >>"$TEST_SD_LOG"; }
+warn() { printf 'WARN:%s\n' "$*" >>"$TEST_SD_LOG"; }
+err() {
+    printf 'ERR:%s\n' "$*" >>"$TEST_SD_LOG"
+    return 1
+}
+begin_backup_transaction_if_needed() {
+    printf 'begin\n' >>"$TEST_SD_LOG"
+    IS_BACKUP_ACTIVE=true
+    return 0
+}
+finalize_backup_transaction() {
+    printf 'finalize\n' >>"$TEST_SD_LOG"
+    IS_BACKUP_ACTIVE=false
+    return 0
+}
+check_pending_server_config() {
+    printf 'check\n' >>"$TEST_SD_LOG"
+    return 0
+}
+render_server_config_json() {
+    printf '%s\n' '{"log":{}}'
+}
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_SD_LOG"
+    return 0
+}
+restart_core_and_verify() {
+    printf 'restart\n' >>"$TEST_SD_LOG"
+    return 1
+}
+rollback_latest_backup() {
+    printf 'rollback:%s\n' "$*" >>"$TEST_SD_LOG"
+    return 0
+}
+systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$TEST_SD_LOG"
+    case "$*" in
+    'show sing-box -p ProtectSystem --value')
+        printf 'full\n'
+        ;;
+    'show sing-box -p ReadWritePaths --value')
+        printf '\n'
+        ;;
+    'daemon-reload')
+        return 0
+        ;;
+    esac
+}
+
+IS_BACKUP_ACTIVE=false
+is_systemd=1
+is_anytls_acme_mode=1
+is_config_json=/etc/sing-box/config.json
+is_anytls_acme_data_dir=/etc/sing-box/acme
+is_json_file=/etc/sing-box/conf/AnyTLS-example.com.json
+is_new_json='{"inbounds":[]}'
+
+commit_server_config_with_validation && exit 1
+EOF
+    assert_order '^check$' '^begin$' "$log" \
+        'restart rollback path with systemd sandbox must validate before the transaction begins'
+    assert_order '^mkdir:/etc/sing-box/acme$' '^write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf$' "$log" \
+        'restart rollback path with systemd sandbox must write the drop-in after the ACME directory exists'
+    assert_order '^write:/etc/systemd/system/sing-box.service.d/10-anytls-acme.conf$' '^write:/etc/sing-box/conf/AnyTLS-example.com.json$' "$log" \
+        'restart rollback path with systemd sandbox must write the drop-in before the AnyTLS inbound file'
+    assert_order '^write:/etc/sing-box/conf/AnyTLS-example.com.json$' '^restart$' "$log" \
+        'restart rollback path with systemd sandbox must restart only after writing the AnyTLS inbound file'
+    assert_order '^restart$' '^finalize$' "$log" \
+        'restart rollback path with systemd sandbox must finalize after restart failure is observed'
+    assert_order '^finalize$' '^rollback:--yes$' "$log" \
+        'restart rollback path with systemd sandbox must finalize before rollback'
+}
+
 run_version_compare_checks() {
     REPO_ROOT="$REPO_ROOT" bash <<'EOF'
 set -o pipefail
@@ -839,6 +1347,7 @@ assert_order 'run: bash tests/anytls-acme-transaction\.sh' '- name: tar' .github
 run_schema_generation_checks
 run_firewall_checks
 run_transaction_checks
+run_systemd_sandbox_checks
 run_version_compare_checks
 run_acme_capability_check
 

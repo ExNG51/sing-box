@@ -1012,6 +1012,80 @@ write_server_config_json_if_missing() {
     safe_write_file "$is_config_json" "$server_config_json"
 }
 
+path_is_in_systemd_read_write_paths() {
+    local target=$1
+    local paths=$2
+    local path
+
+    [[ $target ]] || return 1
+
+    for path in $paths; do
+        [[ $path == "$target" ]] && return 0
+    done
+
+    return 1
+}
+
+get_systemd_service_property() {
+    local property=$1
+
+    systemctl show "${is_core:-sing-box}" -p "$property" --value 2>/dev/null || true
+}
+
+systemd_protect_system_needs_read_write_paths() {
+    local protect_system=$1
+
+    case "$protect_system" in
+    full | strict | yes | true)
+        return 0
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
+render_anytls_acme_systemd_override() {
+    local acme_dir=$1
+    local log_dir=${is_log_dir:-/var/log/${is_core:-sing-box}}
+
+    printf '[Service]\n'
+    printf 'ReadWritePaths=%s %s\n' "$acme_dir" "$log_dir"
+}
+
+ensure_anytls_acme_systemd_writable_paths() {
+    local protect_system
+    local read_write_paths
+    local override_dir
+    local override_file
+    local override_content
+
+    # 中文注释：仅 AnyTLS ACME + systemd 环境需要处理 ProtectSystem 导致的 ACME 目录只读问题。
+    [[ $is_anytls_acme_mode ]] || return 0
+    [[ $is_systemd ]] || return 0
+    [[ $is_anytls_acme_data_dir ]] || return 0
+
+    protect_system=$(get_systemd_service_property ProtectSystem)
+    systemd_protect_system_needs_read_write_paths "$protect_system" || return 0
+
+    read_write_paths=$(get_systemd_service_property ReadWritePaths)
+    path_is_in_systemd_read_write_paths "$is_anytls_acme_data_dir" "$read_write_paths" && return 0
+
+    override_dir="/etc/systemd/system/${is_core:-sing-box}.service.d"
+    override_file="$override_dir/10-anytls-acme.conf"
+    override_content=$(render_anytls_acme_systemd_override "$is_anytls_acme_data_dir") || return 1
+
+    safe_ensure_dir "$override_dir" || return 1
+    safe_write_file "$override_file" "$override_content" || return 1
+
+    systemctl daemon-reload >/dev/null 2>&1 || {
+        err "systemd daemon-reload 失败，无法应用 AnyTLS ACME 可写路径 override。"
+        return 1
+    }
+
+    msg "$is_warn 已为 AnyTLS ACME 添加 systemd ReadWritePaths override: $override_file"
+}
+
 check_pending_server_config() {
     local tmp_conf_dir tmp_file tmp_config_json check_log
 
@@ -1162,6 +1236,11 @@ commit_server_config_with_validation() {
     if [[ $is_anytls_acme_data_dir ]]; then
         safe_ensure_dir "$is_anytls_acme_data_dir" || {
             fail_anytls_acme_commit_after_write "创建 ACME 数据目录失败，已尝试回滚。"
+            return 1
+        }
+
+        ensure_anytls_acme_systemd_writable_paths || {
+            fail_anytls_acme_commit_after_write "配置 AnyTLS ACME systemd 可写路径失败，已尝试回滚。"
             return 1
         }
     fi
