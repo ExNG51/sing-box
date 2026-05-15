@@ -73,6 +73,17 @@ if ! run_with_timeout 3 bash -c '
     # shellcheck disable=SC1091
     . "$repo_root/src/core.sh"
 
+    ui_print() { printf "%b\n" "$*"; }
+    ui_print_inline() { printf "%b" "$*"; }
+    ui_blank() { printf "\n"; }
+    ui_dim() { printf "%s\n" "$*"; }
+    ui_title() {
+        printf "============================================================\n"
+        printf "%s\n" "$1"
+        [[ ${2:-} ]] && printf "Version: %s\n" "$2"
+        printf "============================================================\n"
+    }
+    ui_menu_item() { printf " %2s. %s\n" "$1" "$2"; }
     show_list() { :; }
     pause() {
         printf "PAUSE\n"
@@ -108,8 +119,12 @@ then
     fail 'main menu must return after completed actions without hanging'
 fi
 
-assert_count '^------------- sing-box script test -------------$' 3 "$loop_output" \
-    'main menu must be redrawn after each completed menu action and before exit'
+assert_count '^sing-box 管理脚本$' 3 "$loop_output" \
+    'main menu title must be redrawn after each completed menu action and before exit'
+assert_count '^Version: test$' 3 "$loop_output" \
+    'main menu version line must be redrawn after each completed menu action and before exit'
+assert_count '^sing-box: active \| Core: 1\.2\.3 \| Caddy: inactive \| Manager: unknown$' 3 "$loop_output" \
+    'main menu status summary must be redrawn after each completed menu action and before exit'
 assert_count '^ADD_PROTOCOL:unset$' 2 "$loop_output" \
     'main menu actions must start with clean transient protocol state'
 
@@ -120,6 +135,17 @@ if ! run_with_timeout 3 bash -c '
     # shellcheck disable=SC1091
     . "$repo_root/src/core.sh"
 
+    ui_print() { printf "%b\n" "$*"; }
+    ui_print_inline() { printf "%b" "$*"; }
+    ui_blank() { printf "\n"; }
+    ui_dim() { printf "%s\n" "$*"; }
+    ui_title() {
+        printf "============================================================\n"
+        printf "%s\n" "$1"
+        [[ ${2:-} ]] && printf "Version: %s\n" "$2"
+        printf "============================================================\n"
+    }
+    ui_menu_item() { printf " %2s. %s\n" "$1" "$2"; }
     show_list() { :; }
     pause() {
         printf "PAUSE\n"
@@ -150,8 +176,12 @@ then
     fail '0 from the add-protocol submenu must return directly to the main menu'
 fi
 
-assert_count '^------------- sing-box script test -------------$' 2 "$add_back_output" \
-    'returning from the add-protocol submenu must redraw the main menu'
+assert_count '^sing-box 管理脚本$' 2 "$add_back_output" \
+    'returning from the add-protocol submenu must redraw the main menu title'
+assert_count '^Version: test$' 2 "$add_back_output" \
+    'returning from the add-protocol submenu must redraw the main menu version line'
+assert_count '^sing-box: active \| Core: 1\.2\.3 \| Caddy: inactive \| Manager: unknown$' 2 "$add_back_output" \
+    'returning from the add-protocol submenu must redraw the main menu status summary'
 assert_count '^PAUSE$' 0 "$add_back_output" \
     'returning from the add-protocol submenu must not require an extra pause'
 
@@ -161,6 +191,10 @@ if ! run_with_timeout 3 bash -c '
     repo_root=$1
     # shellcheck disable=SC1091
     . "$repo_root/src/core.sh"
+    ui_print() { printf "%b\n" "$*"; }
+    ui_print_inline() { printf "%b" "$*"; }
+    ui_blank() { printf "\n"; }
+    ui_menu_item() { printf " %2s. %s\n" "$1" "$2"; }
     show_list() { :; }
     is_main_start=1
     ask list is_do_manage "启动 停止 重启" "\n请选择管理操作:\n" < <(printf "0\n")

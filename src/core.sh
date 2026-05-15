@@ -112,20 +112,15 @@ fi
 is_random_ss_method=${ss_method_list[$(shuf -i 4-6 -n1)]} # random only use ss2022
 is_random_servername=${servername_list[$(shuf -i 1-${#servername_list[@]} -n1) - 1]}
 
-msg() {
-    echo -e "$@"
-}
-
-msg_ul() {
-    echo -e "\e[4m$@\e[0m"
-}
+msg() { ui_print "$@"; }
+msg_ul() { ui_print "${UI_STYLE_UNDERLINE:-}$*${UI_COLOR_RESET:-}"; }
 
 # pause
 pause() {
-    echo
-    echo -ne "按 $(_green Enter 回车键) 继续, 或按 $(_red Ctrl + C) 取消."
+    ui_blank
+    ui_print_inline "按 $(_green Enter 回车键) 继续, 或按 $(_red Ctrl + C) 取消."
     read -rs -d $'\n'
-    echo
+    ui_blank
 }
 
 get_uuid() {
@@ -193,17 +188,13 @@ is_core_version_ge() {
 }
 
 show_list() {
-    PS3=''
-    COLUMNS=1
-    select i in "$@"; do echo; done &
-    wait
-    # i=0
-    # for v in "$@"; do
-    #     ((i++))
-    #     echo "$i) $v"
-    # done
-    # echo
+    local i=1
+    local item
 
+    for item in "$@"; do
+        ui_menu_item "$i" "$item"
+        i=$((i + 1))
+    done
 }
 
 is_test() {
@@ -324,10 +315,10 @@ ask() {
     [[ ${is_opt_msg:-} ]] && msg "$is_opt_msg"
     [[ ! ${is_opt_input_msg:-} ]] && is_opt_input_msg="请选择 [\e[91m${is_prompt_min}-${#is_tmp_list[@]}\e[0m]:"
     [[ ${is_tmp_list:-} ]] && show_list "${is_tmp_list[@]}"
-    [[ $is_menu_exit_option ]] && msg "0) 退出"
-    [[ $is_menu_back_option ]] && msg "0) 返回主菜单"
+    [[ $is_menu_exit_option ]] && ui_menu_item 0 "退出"
+    [[ $is_menu_back_option ]] && ui_menu_item 0 "返回主菜单"
     while :; do
-        echo -ne $is_opt_input_msg
+        ui_print_inline "$is_opt_input_msg"
         read REPLY || {
             [[ $is_menu_exit_option || $is_emtpy_exit ]] && is_menu_exit=1
             ask_cleanup
@@ -2138,13 +2129,82 @@ reset_menu_action_state() {
     unset is_info_show is_info_str is_url is_insecure is_color is_type is_tcp_http
 }
 
+status_to_text() {
+    case $1 in
+    *running* | *active* | *RUNNING* | *ACTIVE*)
+        printf '%s' "active"
+        ;;
+    *stopped* | *inactive* | *STOPPED* | *INACTIVE*)
+        printf '%s' "inactive"
+        ;;
+    *missing* | *MISSING*)
+        printf '%s' "missing"
+        ;;
+    *)
+        printf '%s' "unknown"
+        ;;
+    esac
+}
+
+get_core_status_text() {
+    if [[ ${is_core_status:-} ]]; then
+        status_to_text "$is_core_status"
+        return
+    fi
+    if [[ ${is_core_bin:-} && $(pgrep -f "$is_core_bin" 2>/dev/null || grep -l "$is_core_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+        printf '%s' "active"
+    elif [[ ${is_core_stop:-} ]]; then
+        printf '%s' "inactive"
+    else
+        printf '%s' "unknown"
+    fi
+}
+
+get_caddy_status_text() {
+    if [[ ${is_caddy_status:-} ]]; then
+        status_to_text "$is_caddy_status"
+        return
+    fi
+    if [[ ! ${is_caddy:-} ]]; then
+        printf '%s' "inactive"
+        return
+    fi
+    if [[ ${is_caddy_bin:-} && $(pgrep -f "$is_caddy_bin" 2>/dev/null || grep -l "$is_caddy_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+        printf '%s' "active"
+    elif [[ ${is_caddy_stop:-} ]]; then
+        printf '%s' "inactive"
+    else
+        printf '%s' "unknown"
+    fi
+}
+
+get_manager_text() {
+    if [[ ${is_systemd:-} ]]; then
+        printf '%s' "systemd"
+    elif [[ ${is_openrc:-} ]]; then
+        printf '%s' "openrc"
+    else
+        printf '%s' "unknown"
+    fi
+}
+
+build_main_status_line() {
+    printf '%s: %s | Core: %s | Caddy: %s | Manager: %s' \
+        "${is_core_name:-sing-box}" \
+        "$(get_core_status_text)" \
+        "${is_core_ver:-unknown}" \
+        "$(get_caddy_status_text)" \
+        "$(get_manager_text)"
+}
+
 # main menu; if no prefer args.
 is_main_menu() {
     is_main_start=1
     while :; do
         reset_menu_action_state
-        msg "\n------------- $is_core_name script $is_sh_ver -------------"
-        msg "$is_core_name $is_core_ver: $is_core_status"
+        ui_blank
+        ui_title "sing-box 管理脚本" "$is_sh_ver"
+        ui_dim "$(build_main_status_line)"
         ask mainmenu || {
             [[ ${is_menu_exit:-} ]] && break
             continue

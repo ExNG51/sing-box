@@ -1,25 +1,103 @@
 #!/bin/bash
 
+ui_init_colors() {
+    if [[ ${FORCE_COLOR:-} == 1 ]]; then
+        UI_COLOR_ENABLED=1
+    elif [[ -n ${NO_COLOR:-} || ${TERM:-} == "dumb" || ! -t 1 ]]; then
+        UI_COLOR_ENABLED=
+    else
+        UI_COLOR_ENABLED=1
+    fi
+
+    if [[ ${UI_COLOR_ENABLED:-} ]]; then
+        UI_STYLE_BOLD='\033[1m'
+        UI_STYLE_DIM='\033[2m'
+        UI_STYLE_UNDERLINE='\033[4m'
+        UI_COLOR_RED='\033[31m'
+        UI_COLOR_YELLOW='\033[33m'
+        UI_COLOR_GRAY='\033[90m'
+        UI_COLOR_GREEN='\033[92m'
+        UI_COLOR_BLUE='\033[94m'
+        UI_COLOR_MAGENTA='\033[95m'
+        UI_COLOR_CYAN='\033[96m'
+        UI_COLOR_RED_BG='\033[41m'
+        UI_COLOR_RESET='\033[0m'
+    else
+        UI_STYLE_BOLD=
+        UI_STYLE_DIM=
+        UI_STYLE_UNDERLINE=
+        UI_COLOR_RED=
+        UI_COLOR_YELLOW=
+        UI_COLOR_GRAY=
+        UI_COLOR_GREEN=
+        UI_COLOR_BLUE=
+        UI_COLOR_MAGENTA=
+        UI_COLOR_CYAN=
+        UI_COLOR_RED_BG=
+        UI_COLOR_RESET=
+    fi
+
+    red=$UI_COLOR_RED
+    yellow=$UI_COLOR_YELLOW
+    gray=$UI_COLOR_GRAY
+    green=$UI_COLOR_GREEN
+    blue=$UI_COLOR_BLUE
+    magenta=$UI_COLOR_MAGENTA
+    cyan=$UI_COLOR_CYAN
+    none=$UI_COLOR_RESET
+}
+
+ui_strip_ansi_literals() {
+    printf '%s' "$*" | sed -E 's/\\e\[[0-9;]+m//g; s/\\033\[[0-9;]+m//g'
+}
+
+ui_prepare_text() {
+    local text="$*"
+
+    if [[ ! ${UI_COLOR_ENABLED:-} ]]; then
+        text=$(ui_strip_ansi_literals "$text")
+    fi
+
+    printf '%s' "$text"
+}
+
+ui_print() { printf '%b\n' "$(ui_prepare_text "$@")"; }
+ui_print_inline() { printf '%b' "$(ui_prepare_text "$@")"; }
+ui_blank() { printf '\n'; }
+ui_info() { ui_print "${UI_STYLE_BOLD}${UI_COLOR_CYAN}[i]${UI_COLOR_RESET} $*"; }
+ui_ok() { ui_print "${UI_STYLE_BOLD}${UI_COLOR_GREEN}[OK]${UI_COLOR_RESET} $*"; }
+ui_warn() { printf '%b\n' "$(ui_prepare_text "${UI_STYLE_BOLD}${UI_COLOR_YELLOW}[WARN]${UI_COLOR_RESET} $*")" >&2; }
+ui_error() { printf '%b\n' "$(ui_prepare_text "${UI_STYLE_BOLD}${UI_COLOR_RED}[ERROR]${UI_COLOR_RESET} $*")" >&2; }
+ui_dim() { ui_print "${UI_STYLE_DIM}$*${UI_COLOR_RESET}"; }
+ui_rule() { ui_print "${UI_STYLE_BOLD}${UI_COLOR_CYAN}============================================================${UI_COLOR_RESET}"; }
+ui_title() {
+    ui_rule
+    ui_print "${UI_STYLE_BOLD}${UI_COLOR_CYAN}$1${UI_COLOR_RESET}"
+    [[ ${2:-} ]] && ui_print "${UI_STYLE_BOLD}${UI_COLOR_CYAN}Version: $2${UI_COLOR_RESET}"
+    ui_rule
+}
+ui_menu_item() { printf ' %2s. %s\n' "$1" "$2"; }
+ui_green_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_GREEN}$*${UI_COLOR_RESET}")"; }
+ui_yellow_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_YELLOW}$*${UI_COLOR_RESET}")"; }
+ui_red_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_RED}$*${UI_COLOR_RESET}")"; }
+ui_cyan_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_CYAN}$*${UI_COLOR_RESET}")"; }
+ui_blue_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_BLUE}$*${UI_COLOR_RESET}")"; }
+ui_magenta_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_MAGENTA}$*${UI_COLOR_RESET}")"; }
+ui_red_bg_text() { printf '%b' "$(ui_prepare_text "${UI_COLOR_RED_BG}$*${UI_COLOR_RESET}")"; }
+
+ui_init_colors
+
 is_sh_owner=ExNG51
 # github=https://github.com/ExNG51/sing-box
 
-# bash fonts colors
-red='\e[31m'
-yellow='\e[33m'
-gray='\e[90m'
-green='\e[92m'
-blue='\e[94m'
-magenta='\e[95m'
-cyan='\e[96m'
-none='\e[0m'
-
-_red() { echo -e ${red}$@${none}; }
-_blue() { echo -e ${blue}$@${none}; }
-_cyan() { echo -e ${cyan}$@${none}; }
-_green() { echo -e ${green}$@${none}; }
-_yellow() { echo -e ${yellow}$@${none}; }
-_magenta() { echo -e ${magenta}$@${none}; }
-_red_bg() { echo -e "\e[41m$@${none}"; }
+msg() { ui_print "$@"; }
+_red() { ui_red_text "$@"; }
+_blue() { ui_blue_text "$@"; }
+_cyan() { ui_cyan_text "$@"; }
+_green() { ui_green_text "$@"; }
+_yellow() { ui_yellow_text "$@"; }
+_magenta() { ui_magenta_text "$@"; }
+_red_bg() { ui_red_bg_text "$@"; }
 
 _legacy_helper_warn() {
     if type backup_warn >/dev/null 2>&1; then
@@ -97,13 +175,17 @@ is_err=$(_red_bg 错误!)
 is_warn=$(_red_bg 警告!)
 
 err() {
-    echo -e "\n$is_err $@\n"
-    [[ $is_dont_auto_exit ]] && return
+    printf '\n' >&2
+    ui_error "$is_err $*"
+    printf '\n' >&2
+    [[ ${is_dont_auto_exit:-} ]] && return 1
     exit 1
 }
 
 warn() {
-    echo -e "\n$is_warn $@\n"
+    printf '\n' >&2
+    ui_warn "$is_warn $*"
+    printf '\n' >&2
 }
 
 # load bash script.
