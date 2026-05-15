@@ -164,13 +164,32 @@ normalize_core_version() {
 }
 
 is_core_version_ge() {
-    local current target first
+    local current target
+    local c_major c_minor c_patch
+    local t_major t_minor t_patch
 
     current=$(normalize_core_version "${1:-$is_core_ver}")
     target=$(normalize_core_version "$2")
     [[ $current && $target ]] || return 1
-    first=$(printf '%s\n%s\n' "$target" "$current" | sort -V | head -n1)
-    [[ $first == "$target" ]]
+
+    IFS=. read -r c_major c_minor c_patch _ <<<"$current"
+    IFS=. read -r t_major t_minor t_patch _ <<<"$target"
+
+    c_major=${c_major:-0}
+    c_minor=${c_minor:-0}
+    c_patch=${c_patch:-0}
+    t_major=${t_major:-0}
+    t_minor=${t_minor:-0}
+    t_patch=${t_patch:-0}
+
+    [[ $c_major =~ ^[0-9]+$ && $c_minor =~ ^[0-9]+$ && $c_patch =~ ^[0-9]+$ ]] || return 1
+    [[ $t_major =~ ^[0-9]+$ && $t_minor =~ ^[0-9]+$ && $t_patch =~ ^[0-9]+$ ]] || return 1
+
+    ((c_major > t_major)) && return 0
+    ((c_major < t_major)) && return 1
+    ((c_minor > t_minor)) && return 0
+    ((c_minor < t_minor)) && return 1
+    ((c_patch >= t_patch))
 }
 
 show_list() {
@@ -975,43 +994,69 @@ preflight_anytls_acme() {
     warn_anytls_acme_external_firewall
 }
 
-ensure_server_config_json_exists() {
+render_pending_server_config_json() {
+    # 中文注释：候选 check 优先复用现有生产 config.json；首次安装时只渲染临时基础配置，不提前落盘。
+    if [[ -f $is_config_json ]]; then
+        cat "$is_config_json"
+        return
+    fi
+
+    render_server_config_json
+}
+
+write_server_config_json_if_missing() {
     local server_config_json
 
     [[ -f $is_config_json ]] && return 0
     server_config_json=$(render_server_config_json) || return 1
-    safe_write_file "$is_config_json" "$server_config_json" || return 1
+    safe_write_file "$is_config_json" "$server_config_json"
 }
 
 check_pending_server_config() {
-    local tmp_conf_dir tmp_file check_log
+    local tmp_conf_dir tmp_file tmp_config_json check_log
 
     tmp_conf_dir=$(mktemp -d "${TMPDIR:-/tmp}/sing-box-conf-check.XXXXXX") || {
         err "创建临时配置目录失败。"
+        return 1
+    }
+    tmp_config_json=$(mktemp "${TMPDIR:-/tmp}/sing-box-config-check.XXXXXX") || {
+        rm -rf "$tmp_conf_dir"
+        err "创建临时基础配置失败。"
+        return 1
     }
     check_log=$(mktemp "${TMPDIR:-/tmp}/sing-box-check.XXXXXX") || {
         rm -rf "$tmp_conf_dir"
+        rm -f "$tmp_config_json"
         err "创建临时检查日志失败。"
+        return 1
     }
 
     cp -a "$is_conf_dir"/. "$tmp_conf_dir"/ 2>/dev/null || true
 
+    render_pending_server_config_json >"$tmp_config_json" || {
+        rm -rf "$tmp_conf_dir"
+        rm -f "$tmp_config_json" "$check_log"
+        err "渲染临时基础配置失败。"
+        return 1
+    }
+
     tmp_file="$tmp_conf_dir/$is_config_name"
     printf '%s\n' "$is_new_json" >"$tmp_file" || {
         rm -rf "$tmp_conf_dir"
-        rm -f "$check_log"
+        rm -f "$tmp_config_json" "$check_log"
         err "写入临时配置失败。"
+        return 1
     }
 
-    if ! $is_core_bin check -c "$is_config_json" -C "$tmp_conf_dir" >"$check_log" 2>&1; then
+    if ! $is_core_bin check -c "$tmp_config_json" -C "$tmp_conf_dir" >"$check_log" 2>&1; then
         cat "$check_log"
         rm -rf "$tmp_conf_dir"
-        rm -f "$check_log"
+        rm -f "$tmp_config_json" "$check_log"
         return 1
     fi
 
     rm -rf "$tmp_conf_dir"
-    rm -f "$check_log"
+    rm -f "$tmp_config_json" "$check_log"
 }
 
 is_core_process_running() {
@@ -1086,30 +1131,50 @@ rollback_or_remove_failed_anytls_config() {
     manage restart || true
 }
 
+fail_anytls_acme_commit_after_write() {
+    local message=$1
+    local show_guidance=${2:-}
+
+    [[ $IS_BACKUP_ACTIVE == true ]] && finalize_backup_transaction
+    rollback_or_remove_failed_anytls_config
+    [[ $show_guidance == true ]] && print_anytls_acme_failure_guidance
+    err "$message"
+    return 1
+}
+
 commit_server_config_with_validation() {
     local should_finalize=false
 
-    begin_backup_transaction_if_needed "add-anytls-acme" && should_finalize=true
-
-    ensure_server_config_json_exists || return 1
-
+    # 中文注释：AnyTLS ACME 必须先在临时路径完成 sing-box check，再开启生产写入事务。
     if ! check_pending_server_config; then
         print_anytls_acme_failure_guidance
         err "sing-box 配置检查失败，未写入生产配置。"
+        return 1
     fi
+
+    begin_backup_transaction_if_needed "add-anytls-acme" && should_finalize=true
+
+    write_server_config_json_if_missing || {
+        fail_anytls_acme_commit_after_write "写入基础 config.json 失败，已尝试回滚。"
+        return 1
+    }
 
     if [[ $is_anytls_acme_data_dir ]]; then
-        safe_ensure_dir "$is_anytls_acme_data_dir" || return 1
+        safe_ensure_dir "$is_anytls_acme_data_dir" || {
+            fail_anytls_acme_commit_after_write "创建 ACME 数据目录失败，已尝试回滚。"
+            return 1
+        }
     fi
 
-    safe_write_file "$is_json_file" "$is_new_json" || return 1
+    safe_write_file "$is_json_file" "$is_new_json" || {
+        fail_anytls_acme_commit_after_write "写入 AnyTLS ACME 配置失败，已尝试回滚。"
+        return 1
+    }
 
     if ! restart_core_and_verify; then
         warn "AnyTLS ACME 配置导致 sing-box 启动失败，开始回滚。"
-        [[ $IS_BACKUP_ACTIVE == true ]] && finalize_backup_transaction
-        rollback_or_remove_failed_anytls_config
-        print_anytls_acme_failure_guidance
-        err "AnyTLS ACME 添加失败，已尝试回滚。请根据上方日志检查 DNS、TCP 443、防火墙、ACME 限流或 with_acme。"
+        fail_anytls_acme_commit_after_write "AnyTLS ACME 添加失败，已尝试回滚。请根据上方日志检查 DNS、TCP 443、防火墙、ACME 限流或 with_acme。" true
+        return 1
     fi
 
     if [[ $should_finalize == true || $IS_BACKUP_ACTIVE == true ]]; then

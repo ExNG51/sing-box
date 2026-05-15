@@ -69,6 +69,18 @@ assert_log_contains() {
     }
 }
 
+assert_log_not_contains() {
+    local file=$1
+    local text=$2
+    local description=$3
+
+    if grep -Fq -- "$text" "$file"; then
+        printf -- '--- %s ---\n' "$file" >&2
+        cat "$file" >&2
+        fail "$description"
+    fi
+}
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
@@ -332,31 +344,37 @@ EOF
         'UFW backend must open TCP 443 automatically'
 
     rm -f "$fakebin/ufw"
-    cat >"$fakebin/firewall-cmd" <<'EOF'
+    run_firewalld_case() {
+        local runtime_allowed=$1
+        local permanent_allowed=$2
+
+        cat >"$fakebin/firewall-cmd" <<EOF
 #!/usr/bin/env bash
 set -o pipefail
-case "$*" in
+printf 'firewall-cmd %s\n' "\$*" >>"\$TEST_FIREWALL_LOG"
+case "\$*" in
 --state)
     exit 0
     ;;
 --query-port=443/tcp)
-    exit 1
+    [[ $runtime_allowed == true ]] && exit 0 || exit 1
+    ;;
+--permanent\ --query-port=443/tcp)
+    [[ $permanent_allowed == true ]] && exit 0 || exit 1
     ;;
 --permanent\ --add-port=443/tcp)
-    printf 'firewall-cmd %s\n' "$*" >>"$TEST_FIREWALL_LOG"
     exit 0
     ;;
 --reload)
-    printf 'firewall-cmd %s\n' "$*" >>"$TEST_FIREWALL_LOG"
     exit 0
     ;;
 esac
 exit 0
 EOF
-    chmod +x "$fakebin/firewall-cmd"
-    : >"$log"
+        chmod +x "$fakebin/firewall-cmd"
+        : >"$log"
 
-    TEST_FIREWALL_LOG="$log" PATH="$fakebin:/usr/bin:/bin" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+        TEST_FIREWALL_LOG="$log" PATH="$fakebin:/usr/bin:/bin" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
 set -o pipefail
 msg() { printf 'MSG:%s\n' "$*" >>"$TEST_FIREWALL_LOG"; }
 warn() { printf 'WARN:%s\n' "$*" >>"$TEST_FIREWALL_LOG"; }
@@ -369,10 +387,37 @@ ask() { printf 'ASK:%s|%s|%s\n' "$1" "$2" "$3" >>"$TEST_FIREWALL_LOG"; }
 . "$REPO_ROOT/src/firewall.sh"
 ensure_anytls_acme_firewall_443
 EOF
+        assert_no_match 'firewall-cmd .*(reset|flush|default)' "$log" \
+            'firewalld automation must not reset, flush, or change default policy'
+    }
+
+    run_firewalld_case true true
+    assert_log_contains "$log" 'firewall-cmd --query-port=443/tcp' \
+        'firewalld runtime query must be performed'
+    assert_log_contains "$log" 'firewall-cmd --permanent --query-port=443/tcp' \
+        'firewalld permanent query must be performed'
+    assert_log_not_contains "$log" 'firewall-cmd --permanent --add-port=443/tcp' \
+        'firewalld must not rewrite an existing permanent TCP 443 rule'
+    assert_log_not_contains "$log" 'firewall-cmd --reload' \
+        'firewalld must not reload when runtime and permanent TCP 443 are already allowed'
+
+    run_firewalld_case true false
     assert_log_contains "$log" 'firewall-cmd --permanent --add-port=443/tcp' \
-        'firewalld backend must add a permanent TCP 443 rule'
+        'firewalld must backfill a missing permanent TCP 443 rule when runtime already allows it'
     assert_log_contains "$log" 'firewall-cmd --reload' \
-        'firewalld backend must reload after adding TCP 443'
+        'firewalld must reload after backfilling permanent TCP 443'
+
+    run_firewalld_case false true
+    assert_log_not_contains "$log" 'firewall-cmd --permanent --add-port=443/tcp' \
+        'firewalld must not duplicate an existing permanent TCP 443 rule'
+    assert_log_contains "$log" 'firewall-cmd --reload' \
+        'firewalld must reload to realize a permanent-only TCP 443 rule in runtime'
+
+    run_firewalld_case false false
+    assert_log_contains "$log" 'firewall-cmd --permanent --add-port=443/tcp' \
+        'firewalld must add a permanent TCP 443 rule when both runtime and permanent are absent'
+    assert_log_contains "$log" 'firewall-cmd --reload' \
+        'firewalld must reload after adding a new permanent TCP 443 rule'
 
     rm -f "$fakebin/firewall-cmd"
     cat >"$fakebin/nft" <<'EOF'
@@ -487,13 +532,150 @@ finalize_backup_transaction() {
     IS_BACKUP_ACTIVE=false
     return 0
 }
-ensure_server_config_json_exists() {
-    printf 'base-config\n' >>"$TEST_TX_LOG"
+check_pending_server_config() {
+    printf 'check\n' >>"$TEST_TX_LOG"
+    return 1
+}
+write_server_config_json_if_missing() {
+    printf 'write-config-helper\n' >>"$TEST_TX_LOG"
+    return 0
+}
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_TX_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_TX_LOG"
+    return 0
+}
+restart_core_and_verify() {
+    printf 'restart\n' >>"$TEST_TX_LOG"
+    return 0
+}
+rollback_latest_backup() {
+    printf 'rollback:%s\n' "$*" >>"$TEST_TX_LOG"
+    return 0
+}
+print_anytls_acme_failure_guidance() {
+    printf 'guidance\n' >>"$TEST_TX_LOG"
+}
+
+IS_BACKUP_ACTIVE=false
+is_config_json=/etc/sing-box/config.json
+is_anytls_acme_data_dir=/etc/sing-box/acme
+is_json_file=/etc/sing-box/conf/AnyTLS-example.com.json
+is_new_json='{"inbounds":[]}'
+
+commit_server_config_with_validation && exit 1
+printf 'active:%s\n' "$IS_BACKUP_ACTIVE" >>"$TEST_TX_LOG"
+EOF
+    assert_log_contains "$log" 'check' \
+        'AnyTLS ACME check failure path must still validate the candidate configuration'
+    assert_log_not_contains "$log" 'begin' \
+        'AnyTLS ACME check failure must not open a production backup transaction before validation passes'
+    assert_log_not_contains "$log" 'write:/etc/sing-box/config.json' \
+        'AnyTLS ACME check failure must not write config.json before validation succeeds'
+    assert_log_not_contains "$log" 'write:/etc/sing-box/conf/AnyTLS-example.com.json' \
+        'AnyTLS ACME check failure must not write the AnyTLS inbound file before validation succeeds'
+    assert_log_not_contains "$log" 'rollback:--yes' \
+        'AnyTLS ACME check failure must not rollback when nothing was written to production'
+    assert_log_contains "$log" 'guidance' \
+        'AnyTLS ACME check failure must print follow-up guidance'
+    assert_log_contains "$log" 'ERR:sing-box 配置检查失败，未写入生产配置。' \
+        'AnyTLS ACME check failure must terminate with an explicit validation error'
+    assert_log_contains "$log" 'active:false' \
+        'AnyTLS ACME check failure must not leave an active backup transaction behind'
+
+    : >"$log"
+    TEST_TX_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+msg() { printf 'MSG:%s\n' "$*" >>"$TEST_TX_LOG"; }
+warn() { printf 'WARN:%s\n' "$*" >>"$TEST_TX_LOG"; }
+err() {
+    printf 'ERR:%s\n' "$*" >>"$TEST_TX_LOG"
+    return 1
+}
+begin_backup_transaction_if_needed() {
+    printf 'begin\n' >>"$TEST_TX_LOG"
+    IS_BACKUP_ACTIVE=true
+    return 0
+}
+finalize_backup_transaction() {
+    printf 'finalize\n' >>"$TEST_TX_LOG"
+    IS_BACKUP_ACTIVE=false
     return 0
 }
 check_pending_server_config() {
     printf 'check\n' >>"$TEST_TX_LOG"
     return 0
+}
+render_server_config_json() {
+    printf '%s\n' '{"log":{}}'
+}
+safe_ensure_dir() {
+    printf 'mkdir:%s\n' "$1" >>"$TEST_TX_LOG"
+    return 0
+}
+safe_write_file() {
+    printf 'write:%s\n' "$1" >>"$TEST_TX_LOG"
+    return 0
+}
+restart_core_and_verify() {
+    printf 'restart\n' >>"$TEST_TX_LOG"
+    return 0
+}
+rollback_latest_backup() {
+    printf 'rollback:%s\n' "$*" >>"$TEST_TX_LOG"
+    return 0
+}
+
+is_config_json=/etc/sing-box/config.json
+is_anytls_acme_data_dir=/etc/sing-box/acme
+is_json_file=/etc/sing-box/conf/AnyTLS-example.com.json
+is_new_json='{"inbounds":[]}'
+
+commit_server_config_with_validation
+EOF
+    assert_order '^check$' '^begin$' "$log" \
+        'AnyTLS ACME commit must validate the candidate config before opening the production transaction'
+    assert_order '^begin$' '^write:/etc/sing-box/config.json$' "$log" \
+        'AnyTLS ACME commit must write config.json only after the transaction begins'
+    assert_order '^write:/etc/sing-box/config.json$' '^write:/etc/sing-box/conf/AnyTLS-example.com.json$' "$log" \
+        'AnyTLS ACME commit must create config.json before writing the AnyTLS inbound file when config.json is missing'
+    assert_order '^write:/etc/sing-box/conf/AnyTLS-example.com.json$' '^restart$' "$log" \
+        'AnyTLS ACME commit must restart sing-box after production files are written'
+    assert_order '^restart$' '^finalize$' "$log" \
+        'AnyTLS ACME success path must finalize the backup transaction after restart verification'
+
+    : >"$log"
+    TEST_TX_LOG="$log" REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+msg() { printf 'MSG:%s\n' "$*" >>"$TEST_TX_LOG"; }
+warn() { printf 'WARN:%s\n' "$*" >>"$TEST_TX_LOG"; }
+err() {
+    printf 'ERR:%s\n' "$*" >>"$TEST_TX_LOG"
+    return 1
+}
+begin_backup_transaction_if_needed() {
+    printf 'begin\n' >>"$TEST_TX_LOG"
+    IS_BACKUP_ACTIVE=true
+    return 0
+}
+finalize_backup_transaction() {
+    printf 'finalize\n' >>"$TEST_TX_LOG"
+    IS_BACKUP_ACTIVE=false
+    return 0
+}
+check_pending_server_config() {
+    printf 'check\n' >>"$TEST_TX_LOG"
+    return 0
+}
+render_server_config_json() {
+    printf '%s\n' '{"log":{}}'
 }
 safe_ensure_dir() {
     printf 'mkdir:%s\n' "$1" >>"$TEST_TX_LOG"
@@ -512,16 +694,15 @@ rollback_latest_backup() {
     return 0
 }
 
+is_config_json=/etc/sing-box/config.json
 is_anytls_acme_data_dir=/etc/sing-box/acme
 is_json_file=/etc/sing-box/conf/AnyTLS-example.com.json
 is_new_json='{"inbounds":[]}'
 
 commit_server_config_with_validation && exit 1
 EOF
-    assert_log_contains "$log" 'begin' \
-        'AnyTLS ACME commit path must begin a backup transaction'
-    assert_log_contains "$log" 'base-config' \
-        'AnyTLS ACME commit path must ensure config.json exists before check'
+    assert_order '^check$' '^begin$' "$log" \
+        'AnyTLS ACME restart failure path must validate the candidate config before opening a backup transaction'
     assert_order '^check$' '^write:/etc/sing-box/conf/AnyTLS-example.com.json$' "$log" \
         'AnyTLS ACME commit path must check candidate config before writing production config'
     assert_log_contains "$log" 'restart' \
@@ -555,6 +736,23 @@ EOF
         'fallback rollback path must only delete the new AnyTLS config file'
     assert_log_contains "$log" 'manage:restart ' \
         'fallback rollback path must restart sing-box after removing the bad config'
+}
+
+run_version_compare_checks() {
+    REPO_ROOT="$REPO_ROOT" bash <<'EOF'
+set -o pipefail
+. "$REPO_ROOT/src/core.sh"
+
+is_core_version_ge 1.13.8 1.12.0
+is_core_version_ge v1.13.8 1.12.0
+is_core_version_ge 1.12.0 1.12.0
+! is_core_version_ge 1.11.9 1.12.0
+is_core_version_ge 1.14.1 1.14.0
+! is_core_version_ge 1.13.9 1.14.0
+is_core_version_ge 2.0.0 1.14.0
+is_core_version_ge 1.14 1.14.0
+is_core_version_ge 1.14.0-alpha 1.14.0
+EOF
 }
 
 run_acme_capability_check() {
@@ -625,8 +823,14 @@ assert_match 'preflight_anytls_acme' src/core.sh \
     'AnyTLS ACME flow must call a dedicated preflight function'
 assert_match 'commit_server_config_with_validation' src/core.sh \
     'AnyTLS ACME flow must use the validated commit path'
+assert_match 'render_pending_server_config_json' src/core.sh \
+    'AnyTLS ACME validation must render a temporary base config when config.json is missing'
+assert_match 'check -c "\$tmp_config_json" -C "\$tmp_conf_dir"' src/core.sh \
+    'AnyTLS ACME validation must check against a temporary config.json instead of the production path'
 assert_match 'load firewall\.sh' src/core.sh \
     'AnyTLS ACME preflight must load the dedicated firewall module'
+assert_no_match 'sort -V' src/core.sh \
+    'version comparison must not depend on GNU sort -V'
 assert_match 'run: bash tests/anytls-acme-transaction\.sh' .github/workflows/release.yml \
     'release workflow must run AnyTLS ACME transaction checks before packaging'
 assert_order 'run: bash tests/anytls-acme-transaction\.sh' '- name: tar' .github/workflows/release.yml \
@@ -635,6 +839,7 @@ assert_order 'run: bash tests/anytls-acme-transaction\.sh' '- name: tar' .github
 run_schema_generation_checks
 run_firewall_checks
 run_transaction_checks
+run_version_compare_checks
 run_acme_capability_check
 
 printf '[PASS] AnyTLS ACME transaction checks\n'

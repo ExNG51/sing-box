@@ -31,15 +31,23 @@ allow_ufw_tcp_443() {
 }
 
 allow_firewalld_tcp_443() {
-    # 中文注释：如果 runtime 已允许，则不重复 reload。
-    if firewall-cmd --query-port=443/tcp >/dev/null 2>&1; then
+    local runtime_allowed=false
+    local permanent_allowed=false
+
+    # 中文注释：firewalld 必须同时保证 runtime 与 permanent；runtime-only 状态需要补 permanent 并 reload。
+    firewall-cmd --query-port=443/tcp >/dev/null 2>&1 && runtime_allowed=true
+    firewall-cmd --permanent --query-port=443/tcp >/dev/null 2>&1 && permanent_allowed=true
+
+    if [[ $runtime_allowed == true && $permanent_allowed == true ]]; then
         _green "firewalld 已放行 TCP 443。"
         return 0
     fi
 
-    firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1 || {
-        err "firewalld 添加 TCP 443 永久规则失败。"
-    }
+    if [[ $permanent_allowed != true ]]; then
+        firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1 || {
+            err "firewalld 添加 TCP 443 永久规则失败。"
+        }
+    fi
 
     firewall-cmd --reload >/dev/null 2>&1 || {
         err "firewalld reload 失败。"
