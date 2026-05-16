@@ -256,14 +256,14 @@ ask() {
         is_tmp_list=(${ss_method_list[@]})
         is_default_arg=$is_random_ss_method
         is_opt_msg="\n请选择加密方式:\n"
-        is_opt_input_msg="(默认\e[92m $is_default_arg\e[0m):"
+        is_opt_input_msg="请输入选项编号（默认 $(_green "$is_default_arg")，回车使用默认值）： "
         is_ask_set=ss_method
         ;;
     set_anytls_cert)
         is_tmp_list=("yes" "no")
         is_default_arg=yes
         is_opt_msg="\nAnyTLS 是否使用域名并启用 sing-box ACME 自动证书?\n\n脚本将写入 sing-box ACME 自动证书配置。\n证书由 sing-box 启动后申请和续期，不是脚本预先申请。\n继续前请确保域名 DNS only，且 TCP 443 已公网可达。\n"
-        is_opt_input_msg="(默认\e[92m yes\e[0m):"
+        is_opt_input_msg="请输入选项编号（默认 $(_green yes)，回车使用默认值）： "
         is_ask_set=is_anytls_cert
         ;;
     set_protocol)
@@ -313,7 +313,15 @@ ask() {
     [[ $is_menu_back_option || $is_menu_exit_option ]] && is_prompt_min=0
 
     [[ ${is_opt_msg:-} ]] && msg "$is_opt_msg"
-    [[ ! ${is_opt_input_msg:-} ]] && is_opt_input_msg="请选择 [\e[91m${is_prompt_min}-${#is_tmp_list[@]}\e[0m]:"
+    if [[ ! ${is_opt_input_msg:-} ]]; then
+        if [[ $is_menu_exit_option ]]; then
+            is_opt_input_msg="请输入选项编号（0 退出，1-${#is_tmp_list[@]}）： "
+        elif [[ $is_menu_back_option ]]; then
+            is_opt_input_msg="请输入选项编号（0 返回，1-${#is_tmp_list[@]}）： "
+        else
+            is_opt_input_msg="请输入选项编号（${is_prompt_min}-${#is_tmp_list[@]}）： "
+        fi
+    fi
     [[ ${is_tmp_list:-} ]] && show_list "${is_tmp_list[@]}"
     [[ $is_menu_exit_option ]] && ui_menu_item 0 "退出"
     [[ $is_menu_back_option ]] && ui_menu_item 0 "返回主菜单"
@@ -333,7 +341,7 @@ ask() {
             fi
             if [[ $is_menu_back_option ]]; then
                 is_menu_back=1
-                msg "返回主菜单"
+                ui_info "返回主菜单。"
                 ask_cleanup
                 return 1
             fi
@@ -345,41 +353,41 @@ ask() {
         if [[ ! ${is_tmp_list:-} ]]; then
             [[ $(grep port <<<$is_ask_set) ]] && {
                 [[ ! $(is_test port "$REPLY") ]] && {
-                    msg "$is_err 请输入正确的端口, 可选(1-65535)"
+                    ui_error "请输入正确的端口，可选范围：1-65535。"
                     continue
                 }
                 if [[ $(is_test port_used $REPLY) && $is_ask_set != 'door_port' ]]; then
-                    msg "$is_err 无法使用 ($REPLY) 端口."
+                    ui_error "端口 ${REPLY} 已被占用，无法使用。"
                     continue
                 fi
             }
             [[ $(grep path <<<$is_ask_set) && ! $(is_test path "$REPLY") ]] && {
                 [[ ! $tmp_uuid ]] && get_uuid
-                msg "$is_err 请输入正确的路径, 例如: /$tmp_uuid"
+                ui_error "请输入正确的路径，例如：/$tmp_uuid"
                 continue
             }
             [[ $(grep uuid <<<$is_ask_set) && ! $(is_test uuid "$REPLY") ]] && {
                 [[ ! $tmp_uuid ]] && get_uuid
-                msg "$is_err 请输入正确的 UUID, 例如: $tmp_uuid"
+                ui_error "请输入正确的 UUID，例如：$tmp_uuid"
                 continue
             }
             [[ $is_ask_set == 'is_anytls_domain' && ! $(is_test domain "$REPLY") ]] && {
-                msg "$is_err 请输入正确的域名, 例如: example.com"
+                ui_error "请输入正确的域名，例如：example.com"
                 continue
             }
             [[ $(grep ^y$ <<<$is_ask_set) ]] && {
                 [[ $(grep -i ^y$ <<<"$REPLY") ]] && break
-                msg "请输入 (y)"
+                ui_error "请输入 (y)"
                 continue
             }
-            [[ $REPLY ]] && export $is_ask_set=$REPLY && msg "使用: ${!is_ask_set}" && break
+            [[ $REPLY ]] && export $is_ask_set=$REPLY && ui_info "使用：${!is_ask_set}" && break
         else
             is_ask_result=
             [[ $(is_test number "$REPLY") ]] && is_ask_result=${is_tmp_list[$REPLY - 1]}
-            [[ ${is_ask_result:-} ]] && export $is_ask_set="$is_ask_result" && msg "选择: ${!is_ask_set}" && break
+            [[ ${is_ask_result:-} ]] && export $is_ask_set="$is_ask_result" && ui_info "选择：${!is_ask_set}" && break
         fi
 
-        msg "输入${is_err}"
+        ui_error "无效输入，请重新输入。"
     done
     ask_cleanup
 }

@@ -84,6 +84,8 @@ if ! run_with_timeout 3 bash -c '
         printf "============================================================\n"
     }
     ui_menu_item() { printf " %2s. %s\n" "$1" "$2"; }
+    ui_info() { printf "[i] %s\n" "$*"; }
+    ui_error() { printf "[ERROR] %s\n" "$*" >&2; }
     show_list() { :; }
     pause() {
         printf "PAUSE\n"
@@ -146,6 +148,8 @@ if ! run_with_timeout 3 bash -c '
         printf "============================================================\n"
     }
     ui_menu_item() { printf " %2s. %s\n" "$1" "$2"; }
+    ui_info() { printf "[i] %s\n" "$*"; }
+    ui_error() { printf "[ERROR] %s\n" "$*" >&2; }
     show_list() { :; }
     pause() {
         printf "PAUSE\n"
@@ -195,6 +199,8 @@ if ! run_with_timeout 3 bash -c '
     ui_print_inline() { printf "%b" "$*"; }
     ui_blank() { printf "\n"; }
     ui_menu_item() { printf " %2s. %s\n" "$1" "$2"; }
+    ui_info() { printf "[i] %s\n" "$*"; }
+    ui_error() { printf "[ERROR] %s\n" "$*" >&2; }
     show_list() { :; }
     is_main_start=1
     ask list is_do_manage "启动 停止 重启" "\n请选择管理操作:\n" < <(printf "0\n")
