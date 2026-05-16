@@ -241,7 +241,12 @@ is_port_used() {
 
 # cleanup ask globals after one prompt.
 ask_cleanup() {
-    unset is_opt_msg is_opt_input_msg is_tmp_list is_ask_result is_default_arg is_emtpy_exit
+    unset is_opt_msg is_opt_input_msg is_tmp_list is_ask_result is_default_arg is_emtpy_exit is_mainmenu_help
+}
+
+show_main_menu_help() {
+    ui_dim "主菜单：输入 0 退出脚本。子菜单：输入 0 返回上一级。"
+    ui_dim "普通输入：输入 q 取消当前操作。"
 }
 
 # ask input a string or pick a option for list.
@@ -306,13 +311,18 @@ ask() {
         is_ask_set=is_main_pick
         is_emtpy_exit=1
         is_menu_exit_option=1
+        is_opt_msg="请选择操作："
+        is_opt_input_msg="请输入选项编号（0 退出）： "
+        is_mainmenu_help=1
         ;;
     esac
 
     [[ $is_main_start && ${is_tmp_list:-} && ! $is_menu_exit_option ]] && is_menu_back_option=1
     [[ $is_menu_back_option || $is_menu_exit_option ]] && is_prompt_min=0
 
+    [[ ${is_mainmenu_help:-} ]] && ui_blank
     [[ ${is_opt_msg:-} ]] && msg "$is_opt_msg"
+    [[ ${is_mainmenu_help:-} && ${is_opt_msg:-} ]] && ui_blank
     if [[ ! ${is_opt_input_msg:-} ]]; then
         if [[ $is_menu_exit_option ]]; then
             is_opt_input_msg="请输入选项编号（0 退出，1-${#is_tmp_list[@]}）： "
@@ -325,6 +335,11 @@ ask() {
     [[ ${is_tmp_list:-} ]] && show_list "${is_tmp_list[@]}"
     [[ $is_menu_exit_option ]] && ui_menu_item 0 "退出"
     [[ $is_menu_back_option ]] && ui_menu_item 0 "返回主菜单"
+    if [[ ${is_mainmenu_help:-} ]]; then
+        ui_blank
+        show_main_menu_help
+        ui_blank
+    fi
     while :; do
         ui_print_inline "$is_opt_input_msg"
         read REPLY || {
@@ -2210,7 +2225,6 @@ is_main_menu() {
     is_main_start=1
     while :; do
         reset_menu_action_state
-        ui_blank
         ui_title "sing-box 管理脚本" "$is_sh_ver"
         ui_dim "$(build_main_status_line)"
         ask mainmenu || {
