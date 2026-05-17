@@ -335,6 +335,7 @@ ask() {
     [[ ${is_tmp_list:-} ]] && show_list "${is_tmp_list[@]}"
     [[ $is_menu_exit_option ]] && ui_menu_item 0 "退出"
     [[ $is_menu_back_option ]] && ui_menu_item 0 "返回主菜单"
+    [[ ${is_tmp_list:-} && ! ${is_mainmenu_help:-} ]] && ui_blank
     if [[ ${is_mainmenu_help:-} ]]; then
         ui_blank
         show_main_menu_help
