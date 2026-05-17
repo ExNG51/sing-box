@@ -83,14 +83,14 @@ assert_contains '  1. AnyTLS-example.json' "$LIST_OUTPUT_FILE" \
     'configuration list item 1 must be present'
 assert_contains '  2. TUIC-21428.json' "$LIST_OUTPUT_FILE" \
     'configuration list item 2 must be present'
-assert_contains '  0. 返回主菜单' "$LIST_OUTPUT_FILE" \
+assert_contains '  0. 返回上一级' "$LIST_OUTPUT_FILE" \
     'configuration list must include the menu-back option'
-assert_contains '请输入选项编号（0 返回，1-2）： ' "$LIST_OUTPUT_FILE" \
+assert_contains '请输入选项编号（0 返回）： ' "$LIST_OUTPUT_FILE" \
     'configuration list prompt must be present'
 assert_single_blank_before_prompt \
     "$LIST_OUTPUT_FILE" \
-    '  0. 返回主菜单' \
-    '请输入选项编号（0 返回，1-2）： '
+    '  0. 返回上一级' \
+    '请输入选项编号（0 返回）： '
 
 if ! bash -c '
     set -uo pipefail
@@ -116,13 +116,13 @@ fi
 
 assert_contains '请选择配置:' "$EMPTY_OUTPUT_FILE" \
     'empty configuration list title must be present'
-assert_contains '  0. 返回主菜单' "$EMPTY_OUTPUT_FILE" \
+assert_contains '  0. 返回上一级' "$EMPTY_OUTPUT_FILE" \
     'empty configuration list must include the menu-back option'
 assert_contains '请输入选项编号（0 返回）： ' "$EMPTY_OUTPUT_FILE" \
     'empty configuration list prompt must be present'
 assert_single_blank_before_prompt \
     "$EMPTY_OUTPUT_FILE" \
-    '  0. 返回主菜单' \
+    '  0. 返回上一级' \
     '请输入选项编号（0 返回）： '
 
 printf '[PASS] ask list layout checks\n'

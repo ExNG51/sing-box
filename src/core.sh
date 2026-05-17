@@ -117,10 +117,8 @@ msg_ul() { ui_print "${UI_STYLE_UNDERLINE:-}$*${UI_COLOR_RESET:-}"; }
 
 # pause
 pause() {
-    ui_blank
-    ui_print_inline "按 $(_green Enter 回车键) 继续, 或按 $(_red Ctrl + C) 取消."
-    read -rs -d $'\n'
-    ui_blank
+    [[ ${is_main_start:-} ]] || return 0
+    ui_pause
 }
 
 get_uuid() {
@@ -264,7 +262,11 @@ ask() {
         is_tmp_list=(${ss_method_list[@]})
         is_default_arg=$is_random_ss_method
         is_opt_msg="\n请选择加密方式:\n"
-        is_opt_input_msg="请输入选项编号（默认 $(_green "$is_default_arg")，回车使用默认值）： "
+        if [[ ${is_main_start:-} ]]; then
+            is_opt_input_msg="请输入选项编号（默认 $(_green "$is_default_arg")，回车使用默认值，0 返回，q 取消）： "
+        else
+            is_opt_input_msg="请输入选项编号（默认 $(_green "$is_default_arg")，回车使用默认值）： "
+        fi
         is_ask_set=ss_method
         ;;
     set_anytls_cert)
@@ -272,7 +274,11 @@ ask() {
         is_tmp_list=("yes" "no")
         is_default_arg=yes
         is_opt_msg="\nAnyTLS 是否使用域名并启用 sing-box ACME 自动证书?\n\n脚本将写入 sing-box ACME 自动证书配置。\n证书由 sing-box 启动后申请和续期，不是脚本预先申请。\n继续前请确保域名 DNS only，且 TCP 443 已公网可达。\n"
-        is_opt_input_msg="请输入选项编号（默认 $(_green yes)，回车使用默认值）： "
+        if [[ ${is_main_start:-} ]]; then
+            is_opt_input_msg="请输入选项编号（默认 $(_green yes)，回车使用默认值，0 返回，q 取消）： "
+        else
+            is_opt_input_msg="请输入选项编号（默认 $(_green yes)，回车使用默认值）： "
+        fi
         is_ask_set=is_anytls_cert
         ;;
     set_protocol)
@@ -341,18 +347,14 @@ ask() {
                 is_opt_input_msg="请输入选项编号（0 退出）： "
             fi
         elif [[ $is_menu_back_option ]]; then
-            if ((is_list_count > 0)); then
-                is_opt_input_msg="请输入选项编号（0 返回，1-${is_list_count}）： "
-            else
-                is_opt_input_msg="请输入选项编号（0 返回）： "
-            fi
+            is_opt_input_msg="请输入选项编号（0 返回）： "
         else
             is_opt_input_msg="请输入选项编号（${is_prompt_min}-${#is_tmp_list[@]}）： "
         fi
     fi
     [[ ${is_tmp_list:-} ]] && show_list "${is_tmp_list[@]}"
     [[ $is_menu_exit_option ]] && ui_menu_item 0 "退出"
-    [[ $is_menu_back_option ]] && ui_menu_item 0 "返回主菜单"
+    [[ $is_menu_back_option ]] && ui_menu_item 0 "返回上一级"
     if [[ ! ${is_mainmenu_help:-} ]] && {
         [[ ${is_tmp_list:-} ]] || [[ $is_menu_exit_option ]] || [[ $is_menu_back_option ]]
     }; then
@@ -370,6 +372,15 @@ ask() {
             ask_cleanup
             return 1
         }
+        if [[ $REPLY == q || $REPLY == Q ]]; then
+            [[ $is_ask_set == 'is_main_pick' ]] && break
+            if [[ ${is_main_start:-} ]]; then
+                is_menu_back=1
+                ui_warn "已取消。"
+                ask_cleanup
+                return 1
+            fi
+        fi
         [[ ! $REPLY && $is_emtpy_exit ]] && exit
         if [[ $REPLY == 0 ]]; then
             if [[ $is_menu_exit_option ]]; then
@@ -379,7 +390,7 @@ ask() {
             fi
             if [[ $is_menu_back_option ]]; then
                 is_menu_back=1
-                ui_info "返回主菜单。"
+                ui_info "返回上一级。"
                 ask_cleanup
                 return 1
             fi
@@ -2248,6 +2259,7 @@ is_main_menu() {
     is_main_start=1
     while :; do
         reset_menu_action_state
+        ui_clear
         ui_title "sing-box 管理脚本" "$is_sh_ver"
         ui_dim "$(build_main_status_line)"
         ask mainmenu || {
@@ -2320,6 +2332,16 @@ is_main_menu() {
         10)
             load help.sh
             about
+            ;;
+        q | Q)
+            ui_warn "主菜单请使用 0 退出脚本。"
+            sleep 1
+            continue
+            ;;
+        *)
+            ui_error "无效选项，请重新输入。"
+            sleep 1
+            continue
             ;;
         esac
         pause

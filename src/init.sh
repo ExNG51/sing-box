@@ -1,5 +1,7 @@
 #!/bin/bash
 
+: "${UI_TITLE_WIDTH:=60}"
+
 ui_init_colors() {
     if [[ ${FORCE_COLOR:-} == 1 ]]; then
         UI_COLOR_ENABLED=1
@@ -79,17 +81,53 @@ ui_dim() {
     printf '%b\n' "${UI_STYLE_DIM}$*${UI_COLOR_RESET}"
 }
 
+ui_text_width() {
+    local text=$1
+    local width=0
+    local byte=
+    local code=
+    local i=
+    local LC_ALL=C
+
+    for ((i = 0; i < ${#text}; i++)); do
+        byte=${text:i:1}
+        printf -v code '%d' "'$byte"
+        if ((code < 128)); then
+            ((width++))
+        elif ((code >= 192)); then
+            ((width += 2))
+        fi
+    done
+
+    printf '%s\n' "$width"
+}
+
 ui_rule() {
-    printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}============================================================${UI_COLOR_RESET}"
+    local rule=
+
+    printf -v rule '%*s' "$UI_TITLE_WIDTH" ''
+    rule=${rule// /=}
+    printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}${rule}${UI_COLOR_RESET}"
+}
+
+ui_clear() {
+    [[ -t 1 ]] && clear 2>/dev/null || true
+}
+
+ui_pause() {
+    ui_blank
+    ui_print_inline "按回车键继续..."
+    read -rs -d $'\n' || true
 }
 
 ui_center_text() {
     local plain_text=$1
     local styled_text=${2:-$plain_text}
-    local width=${3:-60}
-    local text_width=${#plain_text}
+    local width=${3:-$UI_TITLE_WIDTH}
+    local text_width=
     local padding=0
 
+    text_width=$(ui_text_width "$plain_text")
     if (( text_width < width )); then
         padding=$(( (width - text_width) / 2 ))
     fi
@@ -102,8 +140,8 @@ ui_title() {
     local version=${2:-}
 
     ui_rule
-    ui_center_text "$title" "${UI_STYLE_BOLD}${UI_COLOR_CYAN}${title}${UI_COLOR_RESET}" 60
-    [[ $version ]] && ui_center_text "Version: $version" "${UI_STYLE_BOLD}${UI_COLOR_CYAN}Version: ${version}${UI_COLOR_RESET}" 60
+    ui_center_text "$title" "${UI_STYLE_BOLD}${UI_COLOR_CYAN}${title}${UI_COLOR_RESET}"
+    [[ $version ]] && ui_center_text "Version: $version" "${UI_STYLE_BOLD}${UI_COLOR_CYAN}Version: ${version}${UI_COLOR_RESET}"
     ui_rule
 }
 

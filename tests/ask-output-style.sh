@@ -177,7 +177,7 @@ if ! run_with_timeout 3 bash -c '
     ask_cleanup() { :; }
     _green() { printf "%s" "$*"; }
 
-    is_main_start=
+    is_main_start=1
     is_emtpy_exit=
     ask set_anytls_cert < <(printf "\n")
     printf "status=%s\n" "$?"
@@ -191,6 +191,43 @@ assert_contains 'status=0' "$default_output" \
     'empty input must keep successful ask() status when default is available'
 assert_contains 'is_anytls_cert=yes' "$default_output" \
     'empty input must still select the default AnyTLS certificate option'
+assert_contains '请输入选项编号（默认 yes，回车使用默认值，0 返回，q 取消）： ' "$default_output" \
+    'AnyTLS menu default prompt must advertise default, 0 back, and q cancel'
+
+ss_default_output="$TMP_DIR/ss-default.out"
+if ! run_with_timeout 3 bash -c '
+    set -euo pipefail
+    repo_root=$1
+    # shellcheck disable=SC1091
+    . "$repo_root/src/core.sh"
+
+    ui_print() { printf "%b\n" "$*"; }
+    ui_print_inline() { printf "%b" "$*"; }
+    ui_blank() { printf "\n"; }
+    ui_info() { printf "[i] %s\n" "$*"; }
+    ui_error() { printf "[ERROR] %s\n" "$*" >&2; }
+    ui_menu_item() { printf " %2s. %s\n" "$1" "$2"; }
+    show_list() { :; }
+    ask_cleanup() { :; }
+    _green() { printf "%s" "$*"; }
+
+    is_main_start=1
+    is_emtpy_exit=
+    is_random_ss_method=2022-blake3-aes-128-gcm
+    ask set_ss_method < <(printf "\n")
+    printf "status=%s\n" "$?"
+    printf "ss_method=%s\n" "${ss_method:-unset}"
+' bash "$REPO_ROOT" >"$ss_default_output" 2>&1; then
+    cat "$ss_default_output" >&2
+    fail 'ask() must keep SS method default-value selection behavior in menu mode'
+fi
+
+assert_contains 'status=0' "$ss_default_output" \
+    'empty input must keep successful ask() status for SS method defaults'
+assert_contains 'ss_method=2022-blake3-aes-128-gcm' "$ss_default_output" \
+    'empty input must still select the default SS method option'
+assert_contains '请输入选项编号（默认 2022-blake3-aes-128-gcm，回车使用默认值，0 返回，q 取消）： ' "$ss_default_output" \
+    'SS method menu default prompt must advertise default, 0 back, and q cancel'
 
 back_output="$TMP_DIR/back.out"
 if ! run_with_timeout 3 bash -c '
@@ -225,7 +262,7 @@ assert_contains 'is_menu_back=1' "$back_output" \
     'submenu list input 0 must still mark a menu-back request'
 assert_contains 'is_do_manage=unset' "$back_output" \
     'submenu list input 0 must not pick a list action'
-assert_contains '[i] 返回主菜单。' "$back_output" \
+assert_contains '[i] 返回上一级。' "$back_output" \
     'submenu list input 0 must still emit the informational back message'
 
 port_output="$TMP_DIR/port.out"

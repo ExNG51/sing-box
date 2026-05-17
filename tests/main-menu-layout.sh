@@ -52,6 +52,20 @@ assert_contains() {
     grep -Fq -- "$text" "$file" || fail "$description"
 }
 
+assert_line_order() {
+    local first_text=$1
+    local second_text=$2
+    local file=$3
+    local description=$4
+    local first_line=
+    local second_line=
+
+    first_line=$(awk -v text="$first_text" 'index($0, text) { print NR; exit }' "$file")
+    second_line=$(awk -v text="$second_text" 'index($0, text) { print NR; exit }' "$file")
+
+    [[ $first_line && $second_line && $first_line -lt $second_line ]] || fail "$description"
+}
+
 assert_line_equals() {
     local line_no=$1
     local expected=$2
@@ -70,6 +84,8 @@ assert_match '^is_sh_ver=v1\.22$' "$REPO_ROOT/sing-box.sh" \
     'sing-box.sh must bump the manager version to v1.22'
 assert_match 'ui_title "sing-box 管理脚本" "\$is_sh_ver"' "$REPO_ROOT/src/core.sh" \
     'is_main_menu must keep the centered ui_title call'
+assert_line_order 'ui_clear' 'ui_title "sing-box 管理脚本" "$is_sh_ver"' "$REPO_ROOT/src/core.sh" \
+    'is_main_menu must clear before rendering ui_title'
 assert_match 'ui_dim "\$\(build_main_status_line\)"' "$REPO_ROOT/src/core.sh" \
     'is_main_menu must keep the condensed status line'
 assert_match 'ask mainmenu' "$REPO_ROOT/src/core.sh" \
@@ -117,6 +133,7 @@ if ! bash -c '
     ui_info() { printf "[i] %s\n" "$*"; }
     ui_error() { printf "[ERROR] %s\n" "$*" >&2; }
     ui_dim() { printf "%s\n" "$*"; }
+    ui_clear() { :; }
     ui_title() {
         printf "sing-box 管理脚本\n"
         printf "Version: %s\n" "$2"
