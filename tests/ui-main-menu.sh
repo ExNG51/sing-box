@@ -97,7 +97,7 @@ assert_contains 'is_anytls_tls="tls:{enabled:true,certificate_provider:\"$is_any
 assert_match 'commit_server_config_with_validation' "$REPO_ROOT/src/core.sh" \
     'AnyTLS ACME transaction path must remain present'
 
-assert_match '^is_sh_ver=v1\.21$' "$REPO_ROOT/sing-box.sh" \
-    'sing-box.sh must bump the manager version to v1.21'
+assert_match '^is_sh_ver=v1\.22$' "$REPO_ROOT/sing-box.sh" \
+    'sing-box.sh must bump the manager version to v1.22'
 
 printf '[PASS] UI main menu checks\n'

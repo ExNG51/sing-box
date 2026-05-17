@@ -253,11 +253,14 @@ show_main_menu_help() {
 ask() {
     local is_menu_back_option=
     local is_menu_exit_option=
+    local is_list_ask=
+    local is_list_count=0
     local is_prompt_min=1
 
     unset is_menu_back is_menu_exit
     case $1 in
     set_ss_method)
+        is_list_ask=1
         is_tmp_list=(${ss_method_list[@]})
         is_default_arg=$is_random_ss_method
         is_opt_msg="\n请选择加密方式:\n"
@@ -265,6 +268,7 @@ ask() {
         is_ask_set=ss_method
         ;;
     set_anytls_cert)
+        is_list_ask=1
         is_tmp_list=("yes" "no")
         is_default_arg=yes
         is_opt_msg="\nAnyTLS 是否使用域名并启用 sing-box ACME 自动证书?\n\n脚本将写入 sing-box ACME 自动证书配置。\n证书由 sing-box 启动后申请和续期，不是脚本预先申请。\n继续前请确保域名 DNS only，且 TCP 443 已公网可达。\n"
@@ -272,6 +276,7 @@ ask() {
         is_ask_set=is_anytls_cert
         ;;
     set_protocol)
+        is_list_ask=1
         is_tmp_list=(${protocol_list[@]})
         [[ $is_no_auto_tls ]] && {
             unset is_tmp_list
@@ -283,6 +288,7 @@ ask() {
         is_ask_set=is_new_protocol
         ;;
     set_change_list)
+        is_list_ask=1
         is_tmp_list=()
         for v in ${is_can_change[@]}; do
             is_tmp_list+=("${change_list[$v]}")
@@ -296,17 +302,20 @@ ask() {
         is_opt_input_msg=$3
         ;;
     list)
+        is_list_ask=1
         is_ask_set=$2
         [[ ! ${is_tmp_list:-} ]] && is_tmp_list=($3)
         is_opt_msg=${4:-}
         is_opt_input_msg=${5:-}
         ;;
     get_config_file)
+        is_list_ask=1
         is_tmp_list=("${is_all_json[@]}")
         is_opt_msg="\n请选择配置:\n"
         is_ask_set=is_config_file
         ;;
     mainmenu)
+        is_list_ask=1
         is_tmp_list=("${mainmenu[@]}")
         is_ask_set=is_main_pick
         is_emtpy_exit=1
@@ -317,7 +326,8 @@ ask() {
         ;;
     esac
 
-    [[ $is_main_start && ${is_tmp_list:-} && ! $is_menu_exit_option ]] && is_menu_back_option=1
+    [[ $is_list_ask ]] && is_list_count=${#is_tmp_list[@]}
+    [[ $is_main_start && $is_list_ask && ! $is_menu_exit_option ]] && is_menu_back_option=1
     [[ $is_menu_back_option || $is_menu_exit_option ]] && is_prompt_min=0
 
     [[ ${is_mainmenu_help:-} ]] && ui_blank
@@ -325,9 +335,17 @@ ask() {
     [[ ${is_mainmenu_help:-} && ${is_opt_msg:-} ]] && ui_blank
     if [[ ! ${is_opt_input_msg:-} ]]; then
         if [[ $is_menu_exit_option ]]; then
-            is_opt_input_msg="请输入选项编号（0 退出，1-${#is_tmp_list[@]}）： "
+            if ((is_list_count > 0)); then
+                is_opt_input_msg="请输入选项编号（0 退出，1-${is_list_count}）： "
+            else
+                is_opt_input_msg="请输入选项编号（0 退出）： "
+            fi
         elif [[ $is_menu_back_option ]]; then
-            is_opt_input_msg="请输入选项编号（0 返回，1-${#is_tmp_list[@]}）： "
+            if ((is_list_count > 0)); then
+                is_opt_input_msg="请输入选项编号（0 返回，1-${is_list_count}）： "
+            else
+                is_opt_input_msg="请输入选项编号（0 返回）： "
+            fi
         else
             is_opt_input_msg="请输入选项编号（${is_prompt_min}-${#is_tmp_list[@]}）： "
         fi
@@ -335,7 +353,11 @@ ask() {
     [[ ${is_tmp_list:-} ]] && show_list "${is_tmp_list[@]}"
     [[ $is_menu_exit_option ]] && ui_menu_item 0 "退出"
     [[ $is_menu_back_option ]] && ui_menu_item 0 "返回主菜单"
-    [[ ${is_tmp_list:-} && ! ${is_mainmenu_help:-} ]] && ui_blank
+    if [[ ! ${is_mainmenu_help:-} ]] && {
+        [[ ${is_tmp_list:-} ]] || [[ $is_menu_exit_option ]] || [[ $is_menu_back_option ]]
+    }; then
+        ui_blank
+    fi
     if [[ ${is_mainmenu_help:-} ]]; then
         ui_blank
         show_main_menu_help
