@@ -85,6 +85,12 @@ assert_match '^ui_text_width\(\)' "$REPO_ROOT/src/init.sh" \
     'src/init.sh must define ui_text_width'
 assert_match '^ui_clear\(\)' "$REPO_ROOT/src/init.sh" \
     'src/init.sh must define ui_clear'
+assert_match '^ui_init_prompt_input\(\)' "$REPO_ROOT/src/init.sh" \
+    'src/init.sh must define ui_init_prompt_input'
+assert_match '^ui_read_raw\(\)' "$REPO_ROOT/src/init.sh" \
+    'src/init.sh must define ui_read_raw'
+assert_match '^ui_read_or_cancel\(\)' "$REPO_ROOT/src/init.sh" \
+    'src/init.sh must define ui_read_or_cancel'
 
 assert_match '^msg\(\)[[:space:]]*\{[[:space:]]*ui_print "\$@"' "$REPO_ROOT/src/core.sh" \
     'msg must remain a raw output wrapper over ui_print'
@@ -105,6 +111,8 @@ assert_match 'ui_dim "\$\(build_main_status_line\)"' "$REPO_ROOT/src/core.sh" \
     'main menu must show the condensed status summary'
 assert_match 'ask mainmenu' "$REPO_ROOT/src/core.sh" \
     'is_main_menu must still call ask mainmenu'
+assert_match '^ask_read_reply\(\)' "$REPO_ROOT/src/core.sh" \
+    'ask() must route prompt input through a wrapper'
 assert_match 'case \$REPLY in' "$REPO_ROOT/src/core.sh" \
     'main menu must still dispatch on REPLY'
 assert_match 'ui_menu_item 0 "退出"' "$REPO_ROOT/src/core.sh" \

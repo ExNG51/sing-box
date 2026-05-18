@@ -247,6 +247,98 @@ show_main_menu_help() {
     ui_dim "普通输入：输入 q 取消当前操作。"
 }
 
+ask_prompt_with_cancel() {
+    local prompt=$1
+    local suffix=
+
+    [[ $prompt == *"q 取消"* ]] && {
+        printf '%s' "$prompt"
+        return
+    }
+
+    if [[ $prompt == *" " ]]; then
+        suffix=" "
+        prompt=${prompt% }
+    else
+        suffix=" "
+    fi
+
+    case $prompt in
+    *：)
+        printf '%s（q 取消）：%s' "${prompt%：}" "$suffix"
+        ;;
+    *:)
+        printf '%s（q 取消）：%s' "${prompt%:}" "$suffix"
+        ;;
+    *)
+        printf '%s（q 取消）：%s' "$prompt" "$suffix"
+        ;;
+    esac
+}
+
+ask_read_reply() {
+    local __prompt=$1
+
+    if type ui_read_raw >/dev/null 2>&1; then
+        ui_read_raw REPLY "$__prompt"
+        return $?
+    fi
+
+    ui_print_inline "$__prompt"
+    read REPLY
+}
+
+confirm_menu_danger_token() {
+    local section=$1
+    local prompt=$2
+    local token=$3
+    local cancel_message=$4
+    shift 4
+    local pair label value
+
+    [[ ${is_main_start:-} ]] || return 0
+
+    ui_section "$section"
+    ui_warn "此操作将修改或删除以下对象："
+    for pair in "$@"; do
+        label=${pair%%=*}
+        value=${pair#*=}
+        ui_kv "$label" "$value"
+    done
+    ui_blank
+    if ! ui_confirm_token "$prompt" "$token"; then
+        is_menu_back=1
+        ui_warn "$cancel_message"
+        return 1
+    fi
+}
+
+confirm_menu_delete_config() {
+    [[ ${is_main_start:-} && ! ${is_no_del_msg:-} ]] || return 0
+    confirm_menu_danger_token \
+        "删除配置确认" \
+        "确认删除该配置？" \
+        "DELETE" \
+        "已取消删除。" \
+        "配置文件=$is_conf_dir/$is_config_file"
+}
+
+confirm_menu_uninstall() {
+    local token=DELETE
+
+    [[ ${is_main_start:-} ]] || return 0
+    [[ ${REPLY:-} == 2 ]] && token=DELETE-ALL
+    confirm_menu_danger_token \
+        "卸载确认" \
+        "确认卸载 ${is_core_name}？" \
+        "$token" \
+        "已取消卸载。" \
+        "核心目录=$is_core_dir" \
+        "配置目录=$is_conf_dir" \
+        "日志目录=$is_log_dir" \
+        "命令入口=$is_sh_bin"
+}
+
 # ask input a string or pick a option for list.
 ask() {
     local is_menu_back_option=
@@ -352,6 +444,9 @@ ask() {
             is_opt_input_msg="请输入选项编号（${is_prompt_min}-${#is_tmp_list[@]}）： "
         fi
     fi
+    if [[ ${is_main_start:-} && ! ${is_list_ask:-} && ${is_opt_input_msg:-} ]]; then
+        is_opt_input_msg=$(ask_prompt_with_cancel "$is_opt_input_msg")
+    fi
     [[ ${is_tmp_list:-} ]] && show_list "${is_tmp_list[@]}"
     [[ $is_menu_exit_option ]] && ui_menu_item 0 "退出"
     [[ $is_menu_back_option ]] && ui_menu_item 0 "返回上一级"
@@ -366,8 +461,7 @@ ask() {
         ui_blank
     fi
     while :; do
-        ui_print_inline "$is_opt_input_msg"
-        read REPLY || {
+        ask_read_reply "$is_opt_input_msg" || {
             [[ $is_menu_exit_option || $is_emtpy_exit ]] && is_menu_exit=1
             ask_cleanup
             return 1
@@ -795,10 +889,7 @@ del() {
         get info $1 || return 1
     fi
     if [[ $is_config_file ]]; then
-        if [[ $is_main_start && ! $is_no_del_msg ]]; then
-            msg "\n是否删除配置文件?: $is_config_file"
-            pause
-        fi
+        confirm_menu_delete_config || return 1
         safe_remove_path "$is_conf_dir/$is_config_file"
         [[ ! $is_new_json ]] && manage restart &
         [[ ! $is_no_del_msg ]] && _green "\n已删除: $is_config_file\n"
@@ -830,8 +921,13 @@ uninstall() {
         is_tmp_list=("卸载 $is_core_name" "卸载 ${is_core_name} & Caddy")
         ask list is_do_uninstall || return 1
     else
-        ask string y "是否卸载 ${is_core_name}? [y]:"
+        if [[ ${is_main_start:-} ]]; then
+            REPLY=1
+        else
+            ask string y "是否卸载 ${is_core_name}? [y]:"
+        fi
     fi
+    confirm_menu_uninstall || return 1
     manage stop &>/dev/null
     manage disable &>/dev/null
     backup_standard_managed_paths
@@ -1318,7 +1414,14 @@ run_with_backup_transaction() {
     begin_backup_transaction_if_needed "$operation" && should_finalize=true
     "$@"
     status=$?
-    [[ $should_finalize == true ]] && finalize_backup_transaction
+    if [[ $should_finalize == true ]]; then
+        if [[ $status -ne 0 && ${#IS_BACKUP_MANIFEST_FILES[@]} -eq 0 ]]; then
+            [[ ${IS_BACKUP_TXN_DIR:-} ]] && rm -rf "$IS_BACKUP_TXN_DIR"
+            IS_BACKUP_ACTIVE=false
+        else
+            finalize_backup_transaction
+        fi
+    fi
     return $status
 }
 
@@ -1909,6 +2012,16 @@ get() {
 }
 
 # show info
+sensitive_output_warning() {
+    local message="下面会显示包含敏感凭据的客户端配置，请避免在共享屏幕、日志或工单中泄露。"
+
+    if type ui_warn >/dev/null 2>&1; then
+        ui_warn "$message"
+    else
+        warn "$message"
+    fi
+}
+
 info() {
     if [[ ! $is_protocol ]]; then
         get info $1 || return 1
@@ -2023,6 +2136,7 @@ info() {
         ;;
     esac
     [[ $is_dont_show_info || $is_gen || $is_dont_auto_exit ]] && return # dont show info
+    sensitive_output_warning
     msg "-------------- $is_config_name -------------"
     for ((i = 0; i < ${#is_info_show[@]}; i++)); do
         a=${info_list[${is_info_show[$i]}]}
@@ -2068,6 +2182,7 @@ url_qr() {
     is_dont_show_info=1
     info $2
     if [[ $is_url ]]; then
+        sensitive_output_warning
         [[ $1 == 'url' ]] && {
             msg "\n------------- $is_config_name & URL 链接 -------------"
             msg "\n\e[${is_color}m${is_url}\e[0m\n"

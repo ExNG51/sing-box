@@ -20,6 +20,14 @@ backup_warn() {
     fi
 }
 
+backup_ui_warn() {
+    if type ui_warn >/dev/null 2>&1; then
+        ui_warn "$*"
+    else
+        backup_warn "$*"
+    fi
+}
+
 backup_die() {
     if type err >/dev/null 2>&1; then
         err "$*"
@@ -691,12 +699,16 @@ rollback_print_plan() {
 
 rollback_confirm() {
     local reply
-    printf 'Continue rollback? [y/N] '
+    printf '是否继续回滚？ [y/N，q 取消]: '
     read -r reply || reply=
     case $reply in
     y | Y) return 0 ;;
+    n | N | no | NO | No | q | Q | "")
+        backup_ui_warn "已取消回滚。"
+        return 1
+        ;;
     *)
-        printf 'Rollback cancelled.\n'
+        backup_ui_warn "请输入 y、n 或 q。"
         return 1
         ;;
     esac

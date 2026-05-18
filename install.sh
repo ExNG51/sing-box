@@ -3,41 +3,136 @@
 is_sh_owner=ExNG51
 # github=https://github.com/ExNG51/sing-box
 
-# bash fonts colors
-red='\e[31m'
-yellow='\e[33m'
+: "${UI_TITLE_WIDTH:=60}"
+
+ui_init_colors() {
+    if [[ ${FORCE_COLOR:-} == 1 ]]; then
+        UI_COLOR_ENABLED=1
+    elif [[ -n ${NO_COLOR:-} || ${TERM:-} == "dumb" || ! -t 1 ]]; then
+        UI_COLOR_ENABLED=
+    else
+        UI_COLOR_ENABLED=1
+    fi
+
+    if [[ ${UI_COLOR_ENABLED:-} ]]; then
+        UI_STYLE_BOLD='\033[1m'
+        UI_STYLE_DIM='\033[2m'
+        UI_COLOR_RED='\033[31m'
+        UI_COLOR_YELLOW='\033[33m'
+        UI_COLOR_GREEN='\033[92m'
+        UI_COLOR_BLUE='\033[94m'
+        UI_COLOR_MAGENTA='\033[95m'
+        UI_COLOR_CYAN='\033[96m'
+        UI_COLOR_RED_BG='\033[41m'
+        UI_COLOR_RESET='\033[0m'
+    else
+        UI_STYLE_BOLD=
+        UI_STYLE_DIM=
+        UI_COLOR_RED=
+        UI_COLOR_YELLOW=
+        UI_COLOR_GREEN=
+        UI_COLOR_BLUE=
+        UI_COLOR_MAGENTA=
+        UI_COLOR_CYAN=
+        UI_COLOR_RED_BG=
+        UI_COLOR_RESET=
+    fi
+
+    red=$UI_COLOR_RED
+    yellow=$UI_COLOR_YELLOW
+    green=$UI_COLOR_GREEN
+    blue=$UI_COLOR_BLUE
+    magenta=$UI_COLOR_MAGENTA
+    cyan=$UI_COLOR_CYAN
+    none=$UI_COLOR_RESET
+}
+
+ui_print() { printf '%b\n' "$*"; }
+ui_print_inline() { printf '%b' "$*"; }
+ui_blank() { printf '\n'; }
+ui_info() { printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}[i]${UI_COLOR_RESET} $*"; }
+ui_ok() { printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_GREEN}[OK]${UI_COLOR_RESET} $*"; }
+ui_warn() { printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_YELLOW}[WARN]${UI_COLOR_RESET} $*" >&2; }
+ui_error() { printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_RED}[ERROR]${UI_COLOR_RESET} $*" >&2; }
+ui_dim() { printf '%b\n' "${UI_STYLE_DIM}$*${UI_COLOR_RESET}"; }
+
+ui_text_width() {
+    local text=$1 width=0 byte code i
+    local LC_ALL=C
+
+    for ((i = 0; i < ${#text}; i++)); do
+        byte=${text:i:1}
+        printf -v code '%d' "'$byte"
+        if ((code < 128)); then
+            ((width++))
+        elif ((code >= 192)); then
+            ((width += 2))
+        fi
+    done
+
+    printf '%s\n' "$width"
+}
+
+ui_rule() {
+    local rule=
+    printf -v rule '%*s' "$UI_TITLE_WIDTH" ''
+    rule=${rule// /=}
+    printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}${rule}${UI_COLOR_RESET}"
+}
+
+ui_center_text() {
+    local plain_text=$1
+    local styled_text=${2:-$plain_text}
+    local width=${3:-$UI_TITLE_WIDTH}
+    local text_width padding=0
+
+    text_width=$(ui_text_width "$plain_text")
+    if ((text_width < width)); then
+        padding=$(((width - text_width) / 2))
+    fi
+
+    printf '%*s%b\n' "$padding" '' "$styled_text"
+}
+
+ui_title() {
+    local title=$1
+    local version=${2:-}
+
+    ui_rule
+    ui_center_text "$title" "${UI_STYLE_BOLD}${UI_COLOR_CYAN}${title}${UI_COLOR_RESET}"
+    [[ $version ]] && ui_center_text "Version: $version" "${UI_STYLE_BOLD}${UI_COLOR_CYAN}Version: ${version}${UI_COLOR_RESET}"
+    ui_rule
+}
+
+ui_green_text() { printf '%b' "${UI_COLOR_GREEN}$*${UI_COLOR_RESET}"; }
+ui_yellow_text() { printf '%b' "${UI_COLOR_YELLOW}$*${UI_COLOR_RESET}"; }
+ui_red_text() { printf '%b' "${UI_COLOR_RED}$*${UI_COLOR_RESET}"; }
+ui_blue_text() { printf '%b' "${UI_COLOR_BLUE}$*${UI_COLOR_RESET}"; }
+ui_cyan_text() { printf '%b' "${UI_COLOR_CYAN}$*${UI_COLOR_RESET}"; }
+ui_magenta_text() { printf '%b' "${UI_COLOR_MAGENTA}$*${UI_COLOR_RESET}"; }
+ui_red_bg_text() { printf '%b' "${UI_COLOR_RED_BG}$*${UI_COLOR_RESET}"; }
+
+ui_init_colors
+
 # Used by sourced scripts.
-# shellcheck disable=SC2034
-gray='\e[90m'
-green='\e[92m'
-blue='\e[94m'
-magenta='\e[95m'
-cyan='\e[96m'
-none='\e[0m'
-# Used by sourced scripts.
-# shellcheck disable=SC2329
-_red() { echo -e "${red}$*${none}"; }
-# shellcheck disable=SC2329
-_blue() { echo -e "${blue}$*${none}"; }
-# shellcheck disable=SC2329
-_cyan() { echo -e "${cyan}$*${none}"; }
-# shellcheck disable=SC2329
-_green() { echo -e "${green}$*${none}"; }
-# shellcheck disable=SC2329
-_yellow() { echo -e "${yellow}$*${none}"; }
-# shellcheck disable=SC2329
-_magenta() { echo -e "${magenta}$*${none}"; }
-_red_bg() { echo -e "\e[41m$*${none}"; }
+_red() { ui_red_text "$@"; }
+_blue() { ui_blue_text "$@"; }
+_cyan() { ui_cyan_text "$@"; }
+_green() { ui_green_text "$@"; }
+_yellow() { ui_yellow_text "$@"; }
+_magenta() { ui_magenta_text "$@"; }
+_red_bg() { ui_red_bg_text "$@"; }
 
 is_err=$(_red_bg 错误!)
 is_warn=$(_red_bg 警告!)
 
 err() {
-    echo -e "\n$is_err $*\n" && exit 1
+    ui_error "$*"
+    exit 1
 }
 
 warn() {
-    echo -e "\n$is_warn $*\n"
+    ui_warn "$*"
 }
 
 IS_DRY_RUN=false
@@ -204,12 +299,12 @@ apply_install_core_version_policy() {
     [[ $is_core_file ]] && return
     if [[ $IS_USER_CORE_VERSION_SPECIFIED == true ]]; then
         is_core_ver=$(install_normalize_core_version "$is_core_ver")
-        echo "Using user-specified sing-box version: $is_core_ver"
+        INSTALL_VERSION_POLICY_MESSAGE="Using user-specified sing-box version: $is_core_ver"
     elif [[ $IS_USE_LATEST_VERSION == true ]]; then
-        echo "Using latest sing-box release. This may introduce breaking changes."
+        INSTALL_VERSION_POLICY_MESSAGE="Using latest sing-box release. This may introduce breaking changes."
     else
         is_core_ver=$DEFAULT_SING_BOX_STABLE_VERSION
-        echo "Using pinned stable sing-box version: $is_core_ver"
+        INSTALL_VERSION_POLICY_MESSAGE="Using pinned stable sing-box version: $is_core_ver"
     fi
 }
 
@@ -296,21 +391,24 @@ get_release_checksum_sha256() {
     echo "$digest"
 }
 
-# print a mesage
+# print a message
 msg() {
     case $1 in
     warn)
-        local color=$yellow
+        ui_warn "$2"
+        return
         ;;
     err)
-        local color=$red
+        ui_error "$2"
+        return
         ;;
     ok)
-        local color=$green
+        ui_ok "$2"
+        return
         ;;
     esac
 
-    echo -e "${color}$(date +'%T')${none}) ${2}"
+    ui_print "${2:-$*}"
 }
 
 add_plan_item() {
@@ -322,13 +420,13 @@ add_plan_item() {
 print_plan_section() {
     local section=$1
     local item item_section item_text
-    echo "$section:"
+    ui_print "$section:"
     for item in "${PLAN_ITEMS[@]}"; do
         item_section=${item%%|*}
         item_text=${item#*|}
-        [[ $item_section == "$section" ]] && echo "- $item_text"
+        [[ $item_section == "$section" ]] && ui_print "- $item_text"
     done
-    echo
+    ui_blank
 }
 
 build_install_plan() {
@@ -387,8 +485,8 @@ build_install_plan() {
 }
 
 print_install_plan() {
-    echo "Install Plan"
-    echo
+    ui_print "Install Plan"
+    ui_blank
     print_plan_section "System"
     print_plan_section "Downloads"
     print_plan_section "Files to write"
@@ -399,14 +497,18 @@ print_install_plan() {
 confirm_install_plan() {
     local reply
     [[ $IS_ASSUME_YES == true ]] && return 0
-    printf "Continue with this installation plan? [y/N] "
+    ui_print_inline "是否继续安装？ [y/N，q 取消]: "
     read -r reply || reply=
     case $reply in
     y | Y)
         return 0
         ;;
+    q | Q)
+        ui_warn "已取消安装。"
+        exit_and_del_tmpdir ok
+        ;;
     *)
-        msg warn "Installation cancelled."
+        ui_warn "已取消安装。"
         exit_and_del_tmpdir ok
         ;;
     esac
@@ -444,17 +546,20 @@ download_or_plan_asset() {
 
 # show help msg
 show_help() {
-    echo -e "Usage: $0 [-f xxx | -l | -p xxx | -v xxx | --latest | --dry-run | --plan | --yes | -h]"
-    echo -e "  -f, --core-file <path>          自定义 $is_core_name 文件路径, e.g., -f /root/$is_core-linux-amd64.tar.gz"
-    echo -e "  -l, --local-install             本地获取安装脚本, 使用当前目录"
-    echo -e "  -p, --proxy <addr>              使用代理下载, e.g., -p http://127.0.0.1:2333"
-    echo -e "  -v, --core-version <ver>        自定义 $is_core_name 版本, e.g., -v v1.13.8"
-    echo -e "      --latest                    显式使用最新 $is_core_name release; 默认使用 pinned stable ($DEFAULT_SING_BOX_STABLE_VERSION)"
-    echo -e "      --dry-run                   仅输出安装计划, 不修改系统"
-    echo -e "      --plan                      等同于 --dry-run"
-    echo -e "      --yes                       跳过安装计划确认, 适用于自动化"
-    echo -e "      --insecure-download         禁用 TLS 证书校验下载, 仅用于受限网络; 仍会校验 SHA256"
-    echo -e "  -h, --help                      显示此帮助界面\n"
+    cat <<EOF
+Usage: $0 [-f xxx | -l | -p xxx | -v xxx | --latest | --dry-run | --plan | --yes | -h]
+  -f, --core-file <path>          自定义 $is_core_name 文件路径, e.g., -f /root/$is_core-linux-amd64.tar.gz
+  -l, --local-install             本地获取安装脚本, 使用当前目录
+  -p, --proxy <addr>              使用代理下载, e.g., -p http://127.0.0.1:2333
+  -v, --core-version <ver>        自定义 $is_core_name 版本, e.g., -v v1.13.8
+      --latest                    显式使用最新 $is_core_name release; 默认使用 pinned stable ($DEFAULT_SING_BOX_STABLE_VERSION)
+      --dry-run                   仅输出安装计划, 不修改系统
+      --plan                      等同于 --dry-run
+      --yes                       跳过安装计划确认, 适用于自动化
+      --insecure-download         禁用 TLS 证书校验下载, 仅用于受限网络; 仍会校验 SHA256
+  -h, --help                      显示此帮助界面
+
+EOF
 
     exit 0
 }
@@ -646,7 +751,7 @@ pass_args() {
             show_help
             ;;
         *)
-            echo -e "\n${is_err} ($*) 为未知参数...\n"
+            ui_error "($*) 为未知参数..."
             show_help
             ;;
         esac
@@ -668,8 +773,8 @@ exit_and_del_tmpdir() {
     [[ ! ${1:-} ]] && {
         msg err "哦豁.."
         msg err "安装过程出现错误..."
-        echo -e "反馈问题) https://github.com/${is_sh_repo}/issues"
-        echo
+        ui_print "反馈问题) https://github.com/${is_sh_repo}/issues"
+        ui_blank
         exit 1
     }
     exit 0
@@ -691,6 +796,25 @@ open_main_menu_if_interactive() {
     else
         msg ok "Run '$is_core' or 'sb' to open the menu and add a protocol."
     fi
+}
+
+install_mode_text() {
+    if [[ $IS_DRY_RUN == true && $IS_ASSUME_YES == true ]]; then
+        printf '%s\n' "dry-run+assume-yes"
+    elif [[ $IS_DRY_RUN == true ]]; then
+        printf '%s\n' "dry-run"
+    elif [[ $IS_ASSUME_YES == true ]]; then
+        printf '%s\n' "assume-yes"
+    else
+        printf '%s\n' "interactive"
+    fi
+}
+
+show_install_header() {
+    ui_title "sing-box 安装向导"
+    ui_dim "Mode: $(install_mode_text) | Init: ${is_init_system:-unknown} | Arch: ${is_arch:-unknown} | Package: ${is_package_manager:-unknown}"
+    ui_blank
+    [[ ${INSTALL_VERSION_POLICY_MESSAGE:-} ]] && ui_info "$INSTALL_VERSION_POLICY_MESSAGE"
 }
 
 execute_install() {
@@ -848,11 +972,7 @@ main() {
     detect_install_environment
     build_install_plan
 
-    # show welcome msg
-    [[ -t 1 ]] && clear
-    echo
-    echo "........... $is_core_name script .........."
-    echo
+    show_install_header
     print_install_plan
 
     [[ $IS_DRY_RUN == true ]] && exit_and_del_tmpdir ok

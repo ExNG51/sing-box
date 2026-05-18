@@ -100,16 +100,12 @@ assert_contains '主菜单：输入 0 退出脚本。子菜单：输入 0 返回
     'main menu help line 1 must remain present'
 assert_contains '普通输入：输入 q 取消当前操作。' "$REPO_ROOT/src/core.sh" \
     'main menu help line 2 must remain present'
-assert_contains 'read REPLY' "$REPO_ROOT/src/core.sh" \
-    'ask() must still read input through read REPLY'
+assert_match '^ask_read_reply\(\)' "$REPO_ROOT/src/core.sh" \
+    'ask() must route prompt input through ask_read_reply'
 assert_match 'unset .*is_mainmenu_help' "$REPO_ROOT/src/core.sh" \
     'ask_cleanup() must clear the main-menu help flag'
-assert_no_match 'ui_read_raw' "$REPO_ROOT/src/core.sh" \
-    'ask() must not introduce ui_read_raw'
-assert_no_match 'ui_read_or_cancel' "$REPO_ROOT/src/core.sh" \
-    'ask() must not introduce ui_read_or_cancel'
-assert_no_match '/dev/tty' "$REPO_ROOT/src/core.sh" \
-    'ask() must not switch to /dev/tty input'
+assert_match 'ui_read_raw' "$REPO_ROOT/src/core.sh" \
+    'ask_read_reply must use ui_read_raw when available'
 assert_match '^preflight_anytls_acme\(\)' "$REPO_ROOT/src/core.sh" \
     'preflight_anytls_acme must remain present'
 assert_match 'commit_server_config_with_validation' "$REPO_ROOT/src/core.sh" \

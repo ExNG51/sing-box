@@ -97,14 +97,14 @@ assert_not_contains '\e[92m' "$ASK_SNIPPET" \
 assert_not_contains '\e[0m' "$ASK_SNIPPET" \
     'ask() prompt/output fragment must not contain hardcoded reset ANSI'
 
-assert_contains 'read REPLY' "$ASK_SNIPPET" \
-    'ask() must still read input through read REPLY'
-assert_not_contains 'ui_read_raw' "$ASK_SNIPPET" \
-    'ask() must not introduce ui_read_raw'
-assert_not_contains 'ui_read_or_cancel' "$ASK_SNIPPET" \
-    'ask() must not introduce ui_read_or_cancel'
-assert_not_contains '/dev/tty' "$ASK_SNIPPET" \
-    'ask() must not switch to /dev/tty input'
+assert_match '^ask_read_reply\(\)' "$REPO_ROOT/src/core.sh" \
+    'ask() must route prompt input through ask_read_reply'
+assert_contains 'ask_read_reply "$is_opt_input_msg"' "$ASK_SNIPPET" \
+    'ask() must call ask_read_reply with the computed prompt'
+assert_match '^ui_init_prompt_input\(\)' "$REPO_ROOT/src/init.sh" \
+    'src/init.sh must expose prompt input initialization'
+assert_match '^ui_read_raw\(\)' "$REPO_ROOT/src/init.sh" \
+    'src/init.sh must expose raw prompt reading'
 
 assert_contains 'is_ask_result=${is_tmp_list[$REPLY - 1]}' "$ASK_SNIPPET" \
     'ask() must keep list selection mapping semantics'
@@ -143,8 +143,8 @@ assert_contains 'ui_error ' "$ASK_SNIPPET" \
     'ask() must use ui_error for validation failures'
 assert_contains 'ui_info ' "$ASK_SNIPPET" \
     'ask() must use ui_info for selection/use/back prompts'
-assert_contains 'ui_print_inline "$is_opt_input_msg"' "$ASK_SNIPPET" \
-    'ask() must keep inline prompt output'
+assert_match 'ui_print_inline "\$__prompt"' "$REPO_ROOT/src/core.sh" \
+    'ask_read_reply fallback must keep inline prompt output when ui_read_raw is unavailable'
 
 assert_match 'commit_server_config_with_validation' "$REPO_ROOT/src/core.sh" \
     'AnyTLS transactional config path must remain present'
@@ -193,6 +193,40 @@ assert_contains 'is_anytls_cert=yes' "$default_output" \
     'empty input must still select the default AnyTLS certificate option'
 assert_contains '请输入选项编号（默认 yes，回车使用默认值，0 返回，q 取消）： ' "$default_output" \
     'AnyTLS menu default prompt must advertise default, 0 back, and q cancel'
+
+string_cancel_output="$TMP_DIR/string-cancel.out"
+if ! run_with_timeout 3 bash -c '
+    set -euo pipefail
+    repo_root=$1
+    # shellcheck disable=SC1091
+    . "$repo_root/src/core.sh"
+
+    ui_print() { printf "%b\n" "$*"; }
+    ui_print_inline() { printf "%b" "$*"; }
+    ui_blank() { printf "\n"; }
+    ui_info() { printf "[i] %s\n" "$*"; }
+    ui_warn() { printf "[WARN] %s\n" "$*" >&2; }
+    ui_error() { printf "[ERROR] %s\n" "$*" >&2; }
+    ask_cleanup() { :; }
+
+    is_main_start=1
+    set +e
+    ask string test_value "请输入新端口:" < <(printf "q\n")
+    status=$?
+    set -e
+    printf "status=%s\n" "$status"
+    printf "is_menu_back=%s\n" "${is_menu_back:-unset}"
+' bash "$REPO_ROOT" >"$string_cancel_output" 2>&1; then
+    cat "$string_cancel_output" >&2
+    fail 'ask() string cancel behavior must complete'
+fi
+
+assert_contains '请输入新端口（q 取消）： ' "$string_cancel_output" \
+    'plain string prompts in menu context must advertise q cancellation'
+assert_contains 'status=1' "$string_cancel_output" \
+    'q cancellation must preserve ask() return status'
+assert_contains 'is_menu_back=1' "$string_cancel_output" \
+    'q cancellation must keep menu-back state'
 
 ss_default_output="$TMP_DIR/ss-default.out"
 if ! run_with_timeout 3 bash -c '

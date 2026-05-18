@@ -1,6 +1,9 @@
 #!/bin/bash
 
 : "${UI_TITLE_WIDTH:=60}"
+: "${UI_KV_LABEL_WIDTH:=18}"
+: "${UI_PROMPT_FD:=0}"
+: "${UI_RETURN_TO_MENU:=130}"
 
 ui_init_colors() {
     if [[ ${FORCE_COLOR:-} == 1 ]]; then
@@ -102,6 +105,17 @@ ui_text_width() {
     printf '%s\n' "$width"
 }
 
+ui_kv() {
+    local label=$1
+    local value=${2:-}
+    local width padding
+
+    width=$(ui_text_width "$label")
+    padding=$((UI_KV_LABEL_WIDTH - width))
+    ((padding < 1)) && padding=1
+    printf '%s%*s%s\n' "$label" "$padding" '' "$value"
+}
+
 ui_rule() {
     local rule=
 
@@ -118,6 +132,52 @@ ui_pause() {
     ui_blank
     ui_print_inline "按回车键继续..."
     read -rs -d $'\n' || true
+}
+
+ui_init_prompt_input() {
+    if [[ -r /dev/tty ]] && { exec 3</dev/tty; } 2>/dev/null; then
+        UI_PROMPT_FD=3
+    else
+        UI_PROMPT_FD=0
+    fi
+}
+
+ui_read_raw() {
+    local __target=$1
+    local __prompt=$2
+    local __value=
+
+    if ! IFS= read -r -u "$UI_PROMPT_FD" -p "$__prompt" __value; then
+        return 1
+    fi
+    __value=${__value//$'\r'/}
+    printf -v "$__target" '%s' "$__value"
+}
+
+ui_is_cancel() {
+    case ${1:-} in
+    q | Q) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
+ui_read_or_cancel() {
+    local __target=$1
+    local __prompt=$2
+
+    ui_read_raw "$__target" "$__prompt" || return 1
+    ui_is_cancel "${!__target}" && return "$UI_RETURN_TO_MENU"
+    return 0
+}
+
+ui_confirm_token() {
+    local __prompt=$1
+    local __token=$2
+    local __answer=
+
+    ui_read_raw __answer "$__prompt 输入 $__token 继续，或输入 q 取消： " || return 1
+    ui_is_cancel "$__answer" && return "$UI_RETURN_TO_MENU"
+    [[ $__answer == "$__token" ]]
 }
 
 ui_center_text() {
@@ -178,6 +238,7 @@ ui_red_bg_text() {
 }
 
 ui_init_colors
+ui_init_prompt_input
 
 is_sh_owner=ExNG51
 # github=https://github.com/ExNG51/sing-box
