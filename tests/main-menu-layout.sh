@@ -80,8 +80,8 @@ for file in sing-box.sh src/*.sh tests/*.sh; do
     bash -n "$REPO_ROOT/$file"
 done
 
-assert_match '^is_sh_ver=v1\.22$' "$REPO_ROOT/sing-box.sh" \
-    'sing-box.sh must bump the manager version to v1.22'
+assert_match '^is_sh_ver=v1\.23$' "$REPO_ROOT/sing-box.sh" \
+    'sing-box.sh must bump the manager version to v1.23'
 assert_match 'ui_title "sing-box 管理脚本" "\$is_sh_ver"' "$REPO_ROOT/src/core.sh" \
     'is_main_menu must keep the centered ui_title call'
 assert_line_order 'ui_clear' 'ui_title "sing-box 管理脚本" "$is_sh_ver"' "$REPO_ROOT/src/core.sh" \
@@ -141,7 +141,7 @@ if ! bash -c '
     reset_menu_action_state() { :; }
     build_main_status_line() { printf "sing-box: active | Core: 1.13.8 | Caddy: inactive | Manager: systemd"; }
 
-    is_sh_ver=v1.22
+    is_sh_ver=v1.23
     is_main_start=
     is_menu_exit=
     is_menu_back=
@@ -157,7 +157,7 @@ done <"$OUTPUT_FILE"
 [[ ${#MENU_LINES[@]} -eq 22 ]] || fail 'main menu mock render must keep the expected 22-line layout'
 
 assert_line_equals 1 'sing-box 管理脚本'
-assert_line_equals 2 'Version: v1.22'
+assert_line_equals 2 'Version: v1.23'
 assert_line_equals 3 'sing-box: active | Core: 1.13.8 | Caddy: inactive | Manager: systemd'
 assert_line_equals 4 ''
 assert_line_equals 5 '请选择操作：'
