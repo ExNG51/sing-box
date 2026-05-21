@@ -500,6 +500,18 @@ path_is_direct_child_with_suffix() {
     [[ $rel != */* && $rel == *"$suffix" ]]
 }
 
+path_is_direct_child_with_prefix_suffix() {
+    local path=$1
+    local dir=$2
+    local prefix=$3
+    local suffix=$4
+    local rel
+
+    [[ $path == "$dir"/* ]] || return 1
+    rel=${path#"$dir"/}
+    [[ $rel != */* && $rel == "$prefix"* && $rel == *"$suffix" ]]
+}
+
 path_is_under_dir() {
     local path=$1
     local dir=$2
@@ -511,6 +523,7 @@ is_managed_remove_path() {
     local path=$1
     local prefix
     local bin_dir sh_bin sb_bin log_dir
+    local hop_instance_dir hop_nft_dir hop_apply_script hop_systemd_template
 
     path=$(strip_trailing_slashes_for_remove "$path")
     prefix=$(managed_remove_prefix)
@@ -518,6 +531,10 @@ is_managed_remove_path() {
     sh_bin=${is_sh_bin:-${prefix}/usr/local/bin/${is_core:-sing-box}}
     sb_bin=${sh_bin/${is_core:-sing-box}/sb}
     log_dir=${is_log_dir:-${prefix}/var/log/${is_core:-sing-box}}
+    hop_instance_dir=${TUIC_HOP_INSTANCE_DIR:-${prefix}/etc/tuic-port-hopping/instances}
+    hop_nft_dir=${TUIC_HOP_NFT_RULE_DIR:-${prefix}/etc/nftables.d}
+    hop_apply_script=${TUIC_HOP_APPLY_SCRIPT:-${prefix}/usr/local/sbin/apply-tuic-port-hopping.sh}
+    hop_systemd_template=${TUIC_HOP_SYSTEMD_TEMPLATE:-${prefix}/etc/systemd/system/tuic-port-hopping@.service}
 
     # allowlist 只包含脚本明确管理的文件或窄目录，禁止删除宽泛系统目录。
     [[ $path == "${is_config_json:-${prefix}/etc/${is_core:-sing-box}/config.json}" ]] && return 0
@@ -538,6 +555,10 @@ is_managed_remove_path() {
     [[ $path == "${is_caddy_bin:-${prefix}/usr/local/bin/caddy}" ]] && return 0
     [[ $path == "$log_dir" ]] && return 0
     path_is_under_dir "$path" "$log_dir" && return 0
+    path_is_direct_child_with_suffix "$path" "$hop_instance_dir" ".env" && return 0
+    path_is_direct_child_with_prefix_suffix "$path" "$hop_nft_dir" "tuic-port-hopping-" ".nft" && return 0
+    [[ $path == "$hop_apply_script" ]] && return 0
+    [[ $path == "$hop_systemd_template" ]] && return 0
     return 1
 }
 
