@@ -114,6 +114,34 @@ assert_protocol_free() {
     is_listen_port_used_for_protocol "$protocol" 443 >/dev/null && fail "$description"
 }
 
+assert_cache_refresh_after_reset() {
+    PORT_TEST_TCP_FIXTURE="$FIXTURE_DIR/ss-tcp-443-used.txt"
+    PORT_TEST_UDP_FIXTURE="$FIXTURE_DIR/ss-no-443-used.txt"
+    export PORT_TEST_TCP_FIXTURE PORT_TEST_UDP_FIXTURE
+    reset_port_detection_cache
+    is_tcp_port_used 443 >/dev/null || fail "tcp cache setup should see tcp 443 used"
+
+    PORT_TEST_TCP_FIXTURE="$FIXTURE_DIR/ss-no-443-used.txt"
+    export PORT_TEST_TCP_FIXTURE
+    reset_port_detection_cache
+    is_tcp_port_used 443 >/dev/null && fail "tcp cache reset should reload changed fixture"
+
+    PORT_TEST_TCP_FIXTURE="$FIXTURE_DIR/ss-no-443-used.txt"
+    PORT_TEST_UDP_FIXTURE="$FIXTURE_DIR/ss-udp-443-used.txt"
+    export PORT_TEST_TCP_FIXTURE PORT_TEST_UDP_FIXTURE
+    reset_port_detection_cache
+    is_udp_port_used 443 >/dev/null || fail "udp cache setup should see udp 443 used"
+
+    PORT_TEST_UDP_FIXTURE="$FIXTURE_DIR/ss-no-443-used.txt"
+    export PORT_TEST_UDP_FIXTURE
+    reset_port_detection_cache
+    is_udp_port_used 443 >/dev/null && fail "udp cache reset should reload changed fixture"
+}
+
+type reset_port_detection_cache >/dev/null 2>&1 || fail "core.sh should expose reset_port_detection_cache"
+assert_cache_refresh_after_reset
+pass "port detection cache reset refreshes TCP and UDP detector state"
+
 PORT_TEST_TCP_FIXTURE="$FIXTURE_DIR/ss-tcp-443-used.txt"
 PORT_TEST_UDP_FIXTURE="$FIXTURE_DIR/ss-no-443-used.txt"
 export PORT_TEST_TCP_FIXTURE PORT_TEST_UDP_FIXTURE
@@ -160,6 +188,8 @@ assert_match 'is_any_port_used\(\)' "$REPO_ROOT/src/core.sh" \
     "core.sh should preserve conservative any-port detector"
 assert_match 'is_listen_port_used_for_protocol\(\)' "$REPO_ROOT/src/core.sh" \
     "core.sh should expose protocol-aware port detector"
+assert_match 'reset_port_detection_cache\(\)' "$REPO_ROOT/src/core.sh" \
+    "core.sh should expose port detection cache reset helper"
 assert_match 'ss -ltnH' "$REPO_ROOT/src/core.sh" \
     "TCP detector should prefer ss -ltnH"
 assert_match 'ss -lunH' "$REPO_ROOT/src/core.sh" \
@@ -168,13 +198,19 @@ pass "protocol-aware port detection helpers are locatable"
 
 assert_match 'assert_anytls_acme_port_available\(\)' "$REPO_ROOT/src/core.sh" \
     "core.sh should define AnyTLS ACME port preflight"
-assert_match 'is_tcp_port_used 443' "$REPO_ROOT/src/core.sh" \
+assert_match 'cert_assert_acme_tcp_443_available AnyTLS' "$REPO_ROOT/src/core.sh" \
+    "AnyTLS ACME port preflight should call shared TCP 443 helper"
+assert_match 'is_tcp_port_used 443' "$REPO_ROOT/src/cert.sh" \
     "AnyTLS ACME port preflight should check TCP 443 only"
 assert_match 'preflight_udp_443_if_needed\(\)' "$REPO_ROOT/src/core.sh" \
     "core.sh should define UDP 443 preflight"
 assert_match 'ensure_udp_443_firewall' "$REPO_ROOT/src/core.sh" \
     "UDP 443 preflight should call firewall helper"
 pass "AnyTLS ACME and UDP 443 preflight call sites are locatable"
+
+assert_match 'is_new_port == "\$port"' "$REPO_ROOT/src/core.sh" \
+    "change port should allow the current configured port idempotently"
+pass "change-port current port idempotent exception is locatable"
 
 assert_match 'allow_ufw_tcp_443\(\)' "$REPO_ROOT/src/firewall.sh" \
     "firewall.sh should keep UFW TCP 443 helper"

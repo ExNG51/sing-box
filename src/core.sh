@@ -248,6 +248,11 @@ port_in_used_list() {
     printf '%s\n' "$@" | grep -Fx "$port"
 }
 
+# 中文注释：清理 TCP/UDP 端口检测缓存，避免长交互会话中复用旧监听状态。
+reset_port_detection_cache() {
+    unset is_tcp_used_port is_udp_used_port is_used_port is_cant_test_port
+}
+
 # 中文注释：检测指定 TCP 监听端口是否被占用。
 is_tcp_port_used() {
     local port=$1
@@ -660,7 +665,9 @@ ask() {
                     ui_error "请输入正确的端口，可选范围：1-65535。"
                     continue
                 }
-                if [[ $is_ask_set != 'door_port' && $(is_current_listen_port_used "$REPLY") ]]; then
+                if [[ $is_ask_set == 'is_new_port' && $REPLY == "$port" ]]; then
+                    :
+                elif [[ $is_ask_set != 'door_port' && $(is_current_listen_port_used "$REPLY") ]]; then
                     ui_error "$(listen_port_used_message "$REPLY" "$(get_current_listen_network)")"
                     continue
                 fi
@@ -793,6 +800,7 @@ create() {
 
 # change config file
 change() {
+    reset_port_detection_cache
     is_change=1
     is_dont_show_info=1
     if [[ $2 ]]; then
@@ -884,7 +892,11 @@ change() {
         [[ $host && ! $is_caddy || $is_no_auto_tls ]] && err "($is_config_file) 不支持更改端口, 因为没啥意义."
         if [[ $is_new_port && ! $is_auto ]]; then
             [[ ! $(is_test port $is_new_port) ]] && err "请输入正确的端口, 可选(1-65535)"
-            [[ $(is_current_listen_port_used "$is_new_port") ]] && err "$(listen_port_used_message "$is_new_port" "$(get_current_listen_network)")"
+            if [[ $is_new_port == "$port" ]]; then
+                :
+            elif [[ $(is_current_listen_port_used "$is_new_port") ]]; then
+                err "$(listen_port_used_message "$is_new_port" "$(get_current_listen_network)")"
+            fi
         fi
         [[ $is_auto ]] && get_port && is_new_port=$tmp_port
         [[ ! $is_new_port ]] && ask string is_new_port "请输入新端口:"
@@ -1194,109 +1206,29 @@ manage() {
 }
 
 assert_anytls_core_version() {
-    # 中文注释：AnyTLS 从 sing-box 1.12.0 起可用。
-    is_core_version_ge "$is_core_ver" "1.12.0" || {
-        err "当前 sing-box 版本 ($is_core_ver) 不支持 AnyTLS，请先升级 sing-box core 到 1.12.0 或更高版本。"
-    }
+    load cert.sh
+    cert_assert_anytls_core_version
 }
 
 assert_core_acme_capability() {
-    local version_output
-
-    version_output=$($is_core_bin version 2>/dev/null || true)
-
-    # 中文注释：如果 version 输出包含 tags 信息，则必须包含 with_acme。
-    if grep -qi 'tags:' <<<"$version_output"; then
-        grep -qw 'with_acme' <<<"$version_output" || {
-            err "当前 sing-box core 未包含 with_acme，无法使用 ACME 自动证书。"
-        }
-    else
-        warn "无法从 sing-box version 输出确认 with_acme；后续将依赖 sing-box check/run 验证。"
-    fi
+    load cert.sh
+    cert_assert_core_acme_capability
 }
 
 assert_anytls_acme_port_available() {
-    if [[ $(is_tcp_port_used 443) ]]; then
-        err "TCP 443 已被占用，AnyTLS ACME 域名模式无法继续。请先停止占用 443 的服务。"
-    fi
+    load cert.sh
+    cert_assert_acme_tcp_443_available AnyTLS
 }
 
 assert_anytls_acme_domain_dns() {
-    local domain=$1
-    local server_ipv4 server_ipv6 domain_a_json domain_aaaa_json
-    local domain_a_records domain_aaaa_records
-    local needs_confirm=
-
-    # 中文注释：优先单独探测公网 IPv4 / IPv6；如果失败，再回退到当前脚本已探测的 ip。
-    server_ipv4=$(_wget -4 -qO- https://one.one.one.one/cdn-cgi/trace 2>/dev/null | awk -F= '/^ip=/{print $2; exit}')
-    server_ipv6=$(_wget -6 -qO- https://one.one.one.one/cdn-cgi/trace 2>/dev/null | awk -F= '/^ip=/{print $2; exit}')
-    [[ ! $server_ipv4 && ${ip:-} && $ip != *:* ]] && server_ipv4=$ip
-    [[ ! $server_ipv6 && ${ip:-} == *:* ]] && server_ipv6=$ip
-
-    domain_a_json=$(_wget -qO- --header="accept: application/dns-json" "https://one.one.one.one/dns-query?name=$domain&type=A" 2>/dev/null || true)
-    domain_aaaa_json=$(_wget -qO- --header="accept: application/dns-json" "https://one.one.one.one/dns-query?name=$domain&type=AAAA" 2>/dev/null || true)
-    domain_a_records=$(jq -r '.Answer[]? | select(.type == 1) | .data' <<<"$domain_a_json" 2>/dev/null || true)
-    domain_aaaa_records=$(jq -r '.Answer[]? | select(.type == 28) | .data' <<<"$domain_aaaa_json" 2>/dev/null || true)
-
-    [[ ! $domain_a_records && ! $domain_aaaa_records ]] && {
-        err "域名 ($domain) 未查询到 A 或 AAAA 记录，AnyTLS ACME 无法继续。"
-    }
-
-    [[ $server_ipv4 ]] && msg "当前服务器 IPv4: $server_ipv4"
-    [[ $server_ipv6 ]] && msg "当前服务器 IPv6: $server_ipv6"
-
-    if [[ $domain_a_records ]]; then
-        msg "域名 A 记录: $(tr '\n' ' ' <<<"$domain_a_records" | sed 's/[[:space:]]\+$//')"
-        if [[ $server_ipv4 ]]; then
-            grep -Fxq "$server_ipv4" <<<"$domain_a_records" || {
-                err "域名 ($domain) 的 A 记录未指向当前服务器 IPv4 ($server_ipv4)。"
-            }
-            if grep -Fvx "$server_ipv4" <<<"$domain_a_records" >/dev/null 2>&1; then
-                warn "检测到多条 A 记录，其中部分不匹配当前服务器 IPv4 ($server_ipv4)。"
-                needs_confirm=1
-            fi
-        else
-            warn "无法确认当前服务器公网 IPv4，A 记录检查只能依赖后续 sing-box check/run。"
-            needs_confirm=1
-        fi
-    fi
-
-    if [[ $domain_aaaa_records ]]; then
-        msg "域名 AAAA 记录: $(tr '\n' ' ' <<<"$domain_aaaa_records" | sed 's/[[:space:]]\+$//')"
-        if [[ $server_ipv6 ]]; then
-            grep -Fxq "$server_ipv6" <<<"$domain_aaaa_records" || {
-                err "域名 ($domain) 的 AAAA 记录未指向当前服务器 IPv6 ($server_ipv6)。"
-            }
-            if grep -Fvx "$server_ipv6" <<<"$domain_aaaa_records" >/dev/null 2>&1; then
-                warn "检测到多条 AAAA 记录，其中部分不匹配当前服务器 IPv6 ($server_ipv6)。"
-                needs_confirm=1
-            fi
-        else
-            warn "当前服务器未检测到公网 IPv6，但域名存在 AAAA 记录。"
-            needs_confirm=1
-        fi
-    fi
-
-    warn "脚本无法自动确认域名是否为 Cloudflare DNS only。"
-    needs_confirm=1
-
-    if [[ $needs_confirm && $is_main_start ]]; then
-        ask string y "我已确认域名为 DNS only，且所有 A / AAAA 记录均可到达本机 [y]:"
-    elif [[ $needs_confirm ]]; then
-        warn "请确认域名为 DNS only，且所有 A / AAAA 记录均可到达本机。"
-    fi
+    load cert.sh
+    cert_assert_acme_domain_dns "$1" AnyTLS
 }
 
 preflight_anytls_acme() {
     # 中文注释：仅 AnyTLS 域名 / ACME 模式调用；任何硬失败都必须发生在生产配置写入前。
-    assert_anytls_core_version
-    assert_core_acme_capability
-    assert_anytls_acme_domain_dns "$is_anytls_acme_domain"
-    assert_anytls_acme_port_available
-
-    load firewall.sh
-    ensure_anytls_acme_firewall_443
-    warn_anytls_acme_external_firewall
+    load cert.sh
+    cert_preflight_acme_domain anytls "$is_anytls_acme_domain"
 }
 
 preflight_udp_443_if_needed() {
@@ -1607,6 +1539,7 @@ run_with_backup_transaction() {
 
 # add a config
 add() {
+    reset_port_detection_cache
     is_lower=${1,,}
     if [[ $is_lower ]]; then
         case $is_lower in
@@ -2045,15 +1978,13 @@ get() {
             [[ ! $password ]] && password=$uuid
             is_users="users:[{password:\"$password\"}]"
             if [[ $is_anytls_domain ]]; then
+                type cert_render_tls_json >/dev/null 2>&1 || load cert.sh
                 is_anytls_acme_domain=${is_anytls_acme_domain:-$is_anytls_domain}
                 is_anytls_acme_data_dir=${is_anytls_acme_data_dir:-$is_core_dir/acme}
-                if is_core_version_ge "$is_core_ver" "1.14.0"; then
-                    is_anytls_acme_tag="acme-${is_anytls_acme_domain//[^A-Za-z0-9_.-]/-}"
-                    is_anytls_tls="tls:{enabled:true,certificate_provider:\"$is_anytls_acme_tag\"}"
-                    is_root_extra_json=",certificate_providers:[{type:\"acme\",tag:\"$is_anytls_acme_tag\",domain:[\"$is_anytls_acme_domain\"],data_directory:\"$is_anytls_acme_data_dir\"}]"
-                else
-                    is_anytls_tls="tls:{enabled:true,acme:{domain:[\"$is_anytls_acme_domain\"],data_directory:\"$is_anytls_acme_data_dir\"}}"
-                fi
+                is_anytls_cert_profile=$(cert_acme_mode_for_core "$is_core_ver")
+                is_anytls_acme_tag=$(cert_build_acme_provider_tag "$is_anytls_acme_domain")
+                is_anytls_tls=$(cert_render_tls_json "$is_anytls_cert_profile" "$is_anytls_acme_domain" "$is_anytls_acme_data_dir")
+                is_root_extra_json=$(cert_render_root_extra_json "$is_anytls_cert_profile" "$is_anytls_acme_domain" "$is_anytls_acme_data_dir")
             else
                 is_anytls_tls="${is_tls_json/alpn\:\[\"h3\"\],/}"
             fi
@@ -2462,6 +2393,7 @@ update() {
 }
 
 reset_menu_action_state() {
+    reset_port_detection_cache
     unset REPLY is_main_pick is_do_manage is_do_update is_do_other is_do_uninstall
     unset is_menu_back is_menu_exit is_config_file is_auto_get_config is_all_json
     unset is_new_protocol is_lower is_add_opts is_err_tips is_set_new_protocol is_old_net
@@ -2473,7 +2405,7 @@ reset_menu_action_state() {
     unset is_use_method is_use_door_addr is_use_door_port is_use_servername
     unset is_use_socks_user is_use_socks_pass is_main_anytls_acme is_anytls_cert
     unset is_anytls_domain is_anytls_acme_mode is_anytls_acme_domain is_anytls_acme_port
-    unset is_anytls_acme_tag is_anytls_acme_data_dir is_root_extra_json
+    unset is_anytls_acme_tag is_anytls_acme_data_dir is_anytls_cert_profile is_root_extra_json
     unset is_install_caddy is_no_auto_tls is_dont_show_info is_skip_config_restart
     unset is_dont_get_ip is_no_del_msg is_del_host is_conf_dir_empty is_client
     unset is_test_json is_new_json is_json_add is_add_public_key json_str
