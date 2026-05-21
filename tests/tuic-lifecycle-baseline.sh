@@ -175,8 +175,10 @@ assert_match 'tuic_show_hop_summary' "$REPO_ROOT/src/tuic.sh" \
     "tuic_show_summary should display Port-Hopping status"
 assert_match 'tuic_prepare_hop_change_action' "$REPO_ROOT/src/tuic.sh" \
     "tuic change port should detect associated Port-Hopping instances"
-assert_match 'tuic_hop_migrate_instance "\$old_port" "\$new_port"' "$REPO_ROOT/src/tuic.sh" \
-    "tuic change --hop-action migrate should use the hardened hop migration helper"
+assert_match 'tuic_execute_hop_change_plan' "$REPO_ROOT/src/tuic.sh" \
+    "tuic change --hop-action migrate should execute through the hop plan helper"
+assert_match 'tuic_hop_migrate_instance "\$tuic_hop_plan_old_port" "\$tuic_hop_plan_new_port"' "$REPO_ROOT/src/tuic.sh" \
+    "hop plan execution should use the hardened hop migration helper"
 assert_match 'tuic_handle_hop_before_delete' "$REPO_ROOT/src/tuic.sh" \
     "tuic delete should detect associated Port-Hopping instances"
 assert_not_match 'ui_confirm_token "是否启用 TUIC Port-Hopping' "$REPO_ROOT/src/tuic.sh" \

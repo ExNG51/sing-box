@@ -14,6 +14,10 @@ tuic_reset_state() {
     unset tuic_hop_enable tuic_hop_range tuic_hop_interval tuic_allow_missing_listener
     unset tuic_hop_action tuic_with_hop tuic_force_keep_hop tuic_hop_change_action
     unset tuic_hop_old_range_start tuic_hop_old_range_end tuic_hop_old_interval
+    unset tuic_hop_plan_mode tuic_hop_plan_config_name tuic_hop_plan_config_file
+    unset tuic_hop_plan_old_port tuic_hop_plan_new_port tuic_hop_plan_old_range
+    unset tuic_hop_plan_action tuic_hop_plan_interval tuic_menu_selected_config
+    unset tuic_menu_hop_args
     unset tuic_skip_check tuic_skip_restart tuic_new_json
 }
 
@@ -231,6 +235,7 @@ tuic_parse_add_args() {
             ;;
         --with-hop)
             tuic_with_hop=1
+            tuic_hop_action=delete
             shift
             ;;
         --force-keep-hop)
@@ -884,6 +889,127 @@ tuic_maybe_enable_hop_after_add() {
     ui_dim "$TUIC_HOP_OPTIONAL_NOTICE"
 }
 
+# 中文注释：构建 TUIC 配置变更涉及 Port-Hopping 时的执行计划。
+tuic_build_hop_change_plan() {
+    local mode=$1 old_port=$2 new_port=${3:-$2} action=${4:-}
+    local cfg range_start range_end interval
+
+    tuic_load_hop || return 1
+    cfg=$(tuic_hop_get_config_file "$old_port")
+    range_start=$(tuic_hop_read_env_value "$cfg" RANGE_START 2>/dev/null || true)
+    range_end=$(tuic_hop_read_env_value "$cfg" RANGE_END 2>/dev/null || true)
+    interval=$(tuic_hop_read_env_value "$cfg" HOP_INTERVAL 2>/dev/null || printf '30\n')
+
+    tuic_hop_plan_mode=$mode
+    tuic_hop_plan_config_name=${tuic_config_name:-$(basename "${tuic_config_file:-TUIC config}")}
+    tuic_hop_plan_config_file=${tuic_config_file:-}
+    tuic_hop_plan_old_port=$old_port
+    tuic_hop_plan_new_port=$new_port
+    tuic_hop_plan_old_range=
+    [[ $range_start && $range_end ]] && tuic_hop_plan_old_range="${range_start}-${range_end}/udp"
+    tuic_hop_plan_action=$action
+    tuic_hop_plan_interval=${interval:-30}
+}
+
+tuic_hop_plan_required_token() {
+    case "${tuic_hop_plan_action:-}" in
+    migrate) printf 'MIGRATE-HOP\n' ;;
+    delete) printf 'DELETE-HOP\n' ;;
+    keep) printf 'KEEP-HOP\n' ;;
+    *) printf 'DELETE-TUIC\n' ;;
+    esac
+}
+
+# 中文注释：展示 TUIC Port-Hopping 变更计划。
+tuic_show_hop_change_plan() {
+    local range=${tuic_hop_plan_old_range:-unknown}
+
+    ui_blank
+    case "$tuic_hop_plan_mode" in
+    change)
+        ui_print ">>> TUIC Port-Hopping 变更计划"
+        ui_kv "配置文件" "$tuic_hop_plan_config_name"
+        ui_kv "旧真实端口" "${tuic_hop_plan_old_port}/udp"
+        ui_kv "新真实端口" "${tuic_hop_plan_new_port}/udp"
+        ui_kv "旧跳跃范围" "$range"
+        ui_kv "处理方式" "$tuic_hop_plan_action"
+        ui_blank
+        ui_print "将执行："
+        ui_print "- 修改 TUIC listen_port"
+        case "$tuic_hop_plan_action" in
+        migrate) ui_print "- migrate: 创建新 hop 实例并验证，通过后删除旧实例" ;;
+        delete) ui_print "- delete: 删除旧 hop 实例" ;;
+        keep)
+            ui_print "- keep: 保留旧 hop 实例，可能形成残留风险"
+            tuic_warn "保留旧 Port-Hopping 可能形成残留风险。"
+            ;;
+        esac
+        ;;
+    delete)
+        ui_print ">>> TUIC 删除计划"
+        ui_kv "配置文件" "$tuic_hop_plan_config_name"
+        ui_kv "真实端口" "${tuic_hop_plan_old_port}/udp"
+        ui_kv "Port-Hopping" "enabled"
+        ui_kv "旧跳跃范围" "$range"
+        ui_kv "处理方式" "$tuic_hop_plan_action"
+        ui_blank
+        ui_print "将执行："
+        case "$tuic_hop_plan_action" in
+        delete) ui_print "- delete: 先删除 hop 实例，再删除 TUIC config" ;;
+        keep)
+            ui_print "- keep: 保留 hop 实例，必须确认残留风险"
+            tuic_warn "TUIC 配置将删除，但 Port-Hopping 会保留，可能形成残留风险。"
+            ;;
+        esac
+        ;;
+    esac
+}
+
+# 中文注释：确认 TUIC Port-Hopping 变更计划；菜单路径使用语义 token。
+tuic_confirm_hop_change_plan() {
+    local token
+
+    [[ ${tuic_hop_plan_action:-} ]] || return 0
+    [[ ${is_main_start:-} ]] || return 0
+    token=$(tuic_hop_plan_required_token)
+    ui_confirm_token "确认执行该 TUIC Port-Hopping 计划？" "$token" || {
+        tuic_warn "已取消 TUIC Port-Hopping 计划。"
+        return 1
+    }
+}
+
+# 中文注释：确认并执行 TUIC Port-Hopping 变更计划。
+tuic_execute_hop_change_plan() {
+    local range allow_missing
+
+    [[ ${tuic_hop_plan_action:-} ]] || return 0
+    tuic_load_hop || return 1
+    case "$tuic_hop_plan_action" in
+    delete)
+        tuic_hop_delete_instance "$tuic_hop_plan_old_port" --yes
+        ;;
+    keep)
+        tuic_hop_warn "旧 TUIC Port-Hopping 实例已保留，可能成为残留风险。"
+        tuic_hop_report_residuals "$tuic_hop_plan_old_port"
+        ;;
+    migrate)
+        range=${tuic_hop_plan_old_range%/udp}
+        if [[ (! $tuic_hop_old_range_start || ! $tuic_hop_old_range_end) && $range =~ ^([0-9]+)-([0-9]+)$ ]]; then
+            tuic_hop_old_range_start=${BASH_REMATCH[1]}
+            tuic_hop_old_range_end=${BASH_REMATCH[2]}
+        fi
+        if [[ ! $range || $range == unknown ]] ||
+            [[ ! $tuic_hop_old_range_start || ! $tuic_hop_old_range_end ]] ||
+            tuic_hop_is_port_in_range "$tuic_hop_plan_new_port" "$tuic_hop_old_range_start" "$tuic_hop_old_range_end"; then
+            range=auto
+        fi
+        allow_missing=
+        [[ $tuic_allow_missing_listener || $tuic_yes ]] && allow_missing=1
+        tuic_hop_migrate_instance "$tuic_hop_plan_old_port" "$tuic_hop_plan_new_port" "$range" "${tuic_hop_plan_interval:-30}" "$allow_missing"
+        ;;
+    esac
+}
+
 tuic_prepare_hop_change_action() {
     local old_port=$1 new_port=$2 cfg choice
 
@@ -929,68 +1055,63 @@ tuic_prepare_hop_change_action() {
     tuic_hop_old_range_start=$(tuic_hop_read_env_value "$cfg" RANGE_START 2>/dev/null || true)
     tuic_hop_old_range_end=$(tuic_hop_read_env_value "$cfg" RANGE_END 2>/dev/null || true)
     tuic_hop_old_interval=$(tuic_hop_read_env_value "$cfg" HOP_INTERVAL 2>/dev/null || printf '30\n')
+    tuic_build_hop_change_plan change "$old_port" "$new_port" "$tuic_hop_change_action" || return 1
+    tuic_show_hop_change_plan
+    tuic_confirm_hop_change_plan || return 1
 }
 
 tuic_apply_hop_change_action() {
-    local old_port=$1 new_port=$2 range allow_missing
+    local old_port=$1 new_port=$2
 
     [[ $tuic_hop_change_action ]] || return 0
-    tuic_load_hop || return 1
-    case "$tuic_hop_change_action" in
-    delete)
-        tuic_hop_delete_instance "$old_port" --yes
-        ;;
-    keep)
-        tuic_hop_warn "旧 TUIC Port-Hopping 实例已保留，可能成为残留风险。"
-        tuic_hop_report_residuals "$old_port"
-        ;;
-    migrate)
-        range="${tuic_hop_old_range_start}-${tuic_hop_old_range_end}"
-        if [[ ! $tuic_hop_old_range_start || ! $tuic_hop_old_range_end ]] ||
-            tuic_hop_is_port_in_range "$new_port" "$tuic_hop_old_range_start" "$tuic_hop_old_range_end"; then
-            range=auto
-        fi
-        allow_missing=
-        [[ $tuic_allow_missing_listener || $tuic_yes ]] && allow_missing=1
-        tuic_hop_migrate_instance "$old_port" "$new_port" "$range" "${tuic_hop_old_interval:-30}" "$allow_missing"
-        ;;
-    esac
+    [[ ${tuic_hop_plan_mode:-} ]] || tuic_build_hop_change_plan change "$old_port" "$new_port" "$tuic_hop_change_action" || return 1
+    tuic_execute_hop_change_plan
 }
 
 tuic_handle_hop_before_delete() {
-    local choice
+    local choice cfg
 
     tuic_load_hop || return 1
     tuic_hop_has_instance "$tuic_port" || return 0
-    if [[ $tuic_with_hop || $tuic_hop_action == delete ]]; then
-        tuic_hop_delete_instance "$tuic_port" --yes
-        return $?
-    fi
-    if [[ $tuic_force_keep_hop || $tuic_hop_action == keep ]]; then
-        tuic_hop_warn "TUIC 配置将删除，但关联 Port-Hopping 实例会保留。"
-        tuic_hop_report_residuals "$tuic_port"
-        return 0
-    fi
-    if [[ ${is_main_start:-} ]]; then
-        ui_blank
-        ui_print ">>> 发现关联 TUIC Port-Hopping 实例"
-        ui_kv "真实端口" "${tuic_port}/udp"
-        ui_menu_item 1 "一并删除 hop"
-        ui_menu_item 2 "保留 hop 并报告残留风险"
-        ui_menu_item 0 "返回"
-        ui_read_raw choice "请输入选项编号（0 返回）： " || return 1
-        case "$choice" in
-        1) tuic_hop_delete_instance "$tuic_port" --yes ;;
-        2)
-            ui_confirm_token "确认保留 Port-Hopping 残留？" "KEEP-HOP" || return 1
-            tuic_hop_report_residuals "$tuic_port"
-            ;;
-        0) return 1 ;;
-        *) tuic_fail "无效选项。"; return 1 ;;
-        esac
-        return $?
-    fi
-    tuic_fail "该 TUIC 存在关联 Port-Hopping 实例；请指定 --with-hop 或 --hop-action delete，或使用 --force-keep-hop。"
+    case "${tuic_hop_action:-}" in
+    delete | keep)
+        tuic_hop_change_action=$tuic_hop_action
+        ;;
+    "")
+        if [[ $tuic_force_keep_hop ]]; then
+            tuic_hop_change_action=keep
+        elif [[ ${is_main_start:-} ]]; then
+            ui_blank
+            ui_print ">>> 发现关联 TUIC Port-Hopping 实例"
+            ui_kv "真实端口" "${tuic_port}/udp"
+            ui_menu_item 1 "一并删除 hop"
+            ui_menu_item 2 "保留 hop 并报告残留风险"
+            ui_menu_item 0 "返回"
+            ui_read_raw choice "请输入选项编号（0 返回）： " || return 1
+            case "$choice" in
+            1) tuic_hop_change_action=delete ;;
+            2) tuic_hop_change_action=keep ;;
+            0) return 1 ;;
+            *) tuic_fail "无效选项。"; return 1 ;;
+            esac
+        else
+            tuic_fail "该 TUIC 存在关联 Port-Hopping 实例；请指定 --with-hop 或 --hop-action delete|keep，或使用 --force-keep-hop。"
+            return 1
+        fi
+        ;;
+    *)
+        tuic_fail "删除 TUIC 时 --hop-action 仅支持 delete / keep。"
+        return 1
+        ;;
+    esac
+
+    cfg=$(tuic_hop_get_config_file "$tuic_port")
+    tuic_hop_old_range_start=$(tuic_hop_read_env_value "$cfg" RANGE_START 2>/dev/null || true)
+    tuic_hop_old_range_end=$(tuic_hop_read_env_value "$cfg" RANGE_END 2>/dev/null || true)
+    tuic_hop_old_interval=$(tuic_hop_read_env_value "$cfg" HOP_INTERVAL 2>/dev/null || printf '30\n')
+    tuic_build_hop_change_plan delete "$tuic_port" "$tuic_port" "$tuic_hop_change_action" || return 1
+    tuic_show_hop_change_plan
+    tuic_confirm_hop_change_plan || return 1
 }
 
 # 中文注释：添加 TUIC 配置。
@@ -1093,22 +1214,22 @@ tuic_change() {
     tuic_show_summary
 }
 
-# 中文注释：删除前确认；CLI 必须显式 --yes 或 --confirm DELETE。
+# 中文注释：删除前确认；CLI 兼容 --confirm DELETE，新菜单使用 DELETE-TUIC。
 tuic_confirm_delete() {
-    [[ $tuic_yes || $tuic_confirm_token == DELETE ]] && return 0
+    [[ $tuic_yes || $tuic_confirm_token == DELETE || $tuic_confirm_token == DELETE-TUIC ]] && return 0
     if [[ ${is_main_start:-} ]]; then
         ui_blank
         ui_print ">>> 删除 TUIC 配置确认"
         ui_warn "此操作将删除 TUIC sing-box 配置；如有关联 Port-Hopping 实例，会先要求处理。"
         ui_kv "配置文件" "$tuic_config_file"
         ui_blank
-        ui_confirm_token "确认删除该 TUIC 配置？" "DELETE" || {
+        ui_confirm_token "确认删除该 TUIC 配置？" "DELETE-TUIC" || {
             ui_warn "已取消删除。"
             return 1
         }
         return 0
     fi
-    tuic_fail "删除 TUIC 配置需要 --yes 或 --confirm DELETE。"
+    tuic_fail "删除 TUIC 配置需要 --yes 或 --confirm DELETE-TUIC（兼容 --confirm DELETE）。"
     return 1
 }
 
@@ -1159,14 +1280,15 @@ tuic_delete() {
     tuic_reset_state
     tuic_read_config "$target" || return 1
     tuic_parse_add_args "$@" || return 1
-    tuic_confirm_delete || return 1
     tuic_handle_hop_before_delete || return 1
+    tuic_confirm_delete || return 1
     tuic_check_after_delete || {
         tuic_fail "删除后的 sing-box 配置检查失败，未删除 TUIC 配置。"
         return 1
     }
     [[ ${tuic_dry_run:-} ]] && return 0
 
+    tuic_execute_hop_change_plan || return 1
     begin_backup_transaction_if_needed delete-tuic && should_finalize=true
     safe_remove_path "$tuic_config_file" || {
         tuic_rollback_after_failure
@@ -1376,6 +1498,173 @@ tuic_menu_add_config() {
     tuic_add --port "$port" --uuid "$uuid" --password "$password" --cc "$cc" "${args[@]}"
 }
 
+# 中文注释：在 TUIC 菜单中选择配置，列表展示端口、TLS 与 Port-Hopping 状态。
+tuic_menu_select_config() {
+    local title=${1:-"请选择 TUIC 配置"}
+    local configs=()
+    local config choice idx hop_status range_start range_end cfg
+
+    tuic_menu_selected_config=
+    while IFS= read -r config; do
+        [[ $config ]] && configs+=("$config")
+    done < <(tuic_detect_config)
+    [[ ${#configs[@]} -gt 0 ]] || {
+        ui_warn "未找到 TUIC 配置，请先添加。"
+        return 1
+    }
+
+    ui_blank
+    ui_print ">>> $title"
+    ui_blank
+    idx=1
+    for config in "${configs[@]}"; do
+        tuic_reset_state
+        tuic_read_config "$config" || continue
+        hop_status=disabled
+        if tuic_load_hop && tuic_hop_has_instance "$tuic_port"; then
+            cfg=$(tuic_hop_get_config_file "$tuic_port")
+            range_start=$(tuic_hop_read_env_value "$cfg" RANGE_START 2>/dev/null || true)
+            range_end=$(tuic_hop_read_env_value "$cfg" RANGE_END 2>/dev/null || true)
+            hop_status="enabled ${range_start}-${range_end}/udp"
+        elif tuic_load_hop && tuic_hop_detect_residual_for_port "$tuic_port"; then
+            hop_status=residual
+        fi
+        ui_menu_item "$idx" "$(printf '%s | %s/udp | TLS: %s | Port-Hopping: %s' "$config" "$tuic_port" "$tuic_tls_mode" "$hop_status")"
+        idx=$((idx + 1))
+    done
+    ui_menu_item 0 "返回上一级"
+    ui_blank
+    ui_read_raw choice "请输入选项编号（0 返回）： " || return 1
+    case "$choice" in
+    0 | q | Q)
+        return "${UI_RETURN_TO_MENU:-130}"
+        ;;
+    *)
+        [[ $choice =~ ^[1-9][0-9]*$ && $choice -le ${#configs[@]} ]] || {
+            ui_error "无效选项。"
+            return 1
+        }
+        tuic_menu_selected_config=${configs[$choice - 1]}
+        ;;
+    esac
+}
+
+tuic_menu_select_hop_action() {
+    local config=$1 old_port=$2 new_port=$3
+    local choice cfg range_start range_end
+
+    tuic_menu_hop_args=()
+    [[ $old_port != "$new_port" ]] || return 0
+    tuic_load_hop || return 1
+    tuic_hop_has_instance "$old_port" || return 0
+
+    cfg=$(tuic_hop_get_config_file "$old_port")
+    range_start=$(tuic_hop_read_env_value "$cfg" RANGE_START 2>/dev/null || true)
+    range_end=$(tuic_hop_read_env_value "$cfg" RANGE_END 2>/dev/null || true)
+
+    ui_blank
+    ui_print "检测到当前 TUIC 配置存在 Port-Hopping 实例："
+    ui_kv "配置文件" "$config"
+    ui_kv "真实端口" "${old_port}/udp"
+    ui_kv "跳跃范围" "${range_start}-${range_end}/udp"
+    ui_blank
+    ui_print "请选择处理方式："
+    ui_menu_item 1 "迁移 Port-Hopping 到新端口"
+    ui_menu_item 2 "删除旧 Port-Hopping"
+    ui_menu_item 3 "保留旧 Port-Hopping（将形成残留风险）"
+    ui_menu_item 0 "返回"
+    ui_blank
+    ui_read_raw choice "请输入选项编号（0 返回）： " || return 1
+    case "$choice" in
+    1) tuic_menu_hop_args=(--hop-action migrate) ;;
+    2) tuic_menu_hop_args=(--hop-action delete) ;;
+    3) tuic_menu_hop_args=(--hop-action keep) ;;
+    0 | q | Q) return "${UI_RETURN_TO_MENU:-130}" ;;
+    *) tuic_fail "无效选项。"; return 1 ;;
+    esac
+}
+
+tuic_menu_change_config() {
+    local config choice old_port new_port domain cert_path key_path cc menu_status cfg
+    local hop_args=()
+
+    tuic_menu_select_config "修改 TUIC 配置" || return $?
+    config=$tuic_menu_selected_config
+    tuic_reset_state
+    tuic_read_config "$config" || return 1
+
+    ui_blank
+    ui_print ">>> 修改 TUIC 配置"
+    ui_kv "当前配置" "$config"
+    ui_kv "监听端口" "${tuic_port}/udp"
+    ui_kv "TLS 模式" "$tuic_tls_mode"
+    if tuic_load_hop && tuic_hop_has_instance "$tuic_port"; then
+        cfg=$(tuic_hop_get_config_file "$tuic_port")
+        ui_kv "Port-Hopping" "enabled $(tuic_hop_read_env_value "$cfg" RANGE_START 2>/dev/null || true)-$(tuic_hop_read_env_value "$cfg" RANGE_END 2>/dev/null || true)/udp"
+    else
+        ui_kv "Port-Hopping" "disabled"
+    fi
+    ui_blank
+    ui_menu_item 1 "修改 UDP 监听端口"
+    ui_menu_item 2 "重新生成 UUID"
+    ui_menu_item 3 "重新生成 Password"
+    ui_menu_item 4 "修改 Domain + ACME"
+    ui_menu_item 5 "修改 Domain + file-cert"
+    ui_menu_item 6 "切换为 Self-signed insecure"
+    ui_menu_item 7 "修改 Congestion Control"
+    ui_menu_item 0 "返回上一级"
+    ui_blank
+    ui_read_raw choice "请输入选项编号（0 返回）： " || return 1
+
+    case "$choice" in
+    1)
+        old_port=$tuic_port
+        ui_read_or_cancel new_port "请输入新的 TUIC UDP 监听端口（q 取消）： " || return $?
+        tuic_validate_port_number "$new_port" || {
+            ui_error "TUIC 端口无效: $new_port"
+            return 1
+        }
+        tuic_menu_select_hop_action "$config" "$old_port" "$new_port"
+        menu_status=$?
+        [[ $menu_status -eq ${UI_RETURN_TO_MENU:-130} ]] && return "$menu_status"
+        [[ $menu_status -ne 0 ]] && return "$menu_status"
+        hop_args=("${tuic_menu_hop_args[@]}")
+        tuic_change "$config" --port "$new_port" "${hop_args[@]}"
+        ;;
+    2)
+        tuic_change "$config" --uuid auto
+        ;;
+    3)
+        tuic_change "$config" --password auto
+        ;;
+    4)
+        ui_read_or_cancel domain "请输入域名（q 取消）： " || return $?
+        tuic_change "$config" --domain "$domain" --tls acme
+        ;;
+    5)
+        ui_read_or_cancel domain "请输入域名（q 取消）： " || return $?
+        ui_read_or_cancel cert_path "请输入 certificate_path 绝对路径（q 取消）： " || return $?
+        ui_read_or_cancel key_path "请输入 key_path 绝对路径（q 取消）： " || return $?
+        tuic_change "$config" --domain "$domain" --cert-file "$cert_path" --key-file "$key_path"
+        ;;
+    6)
+        ui_warn "Self-signed insecure 会让客户端 URL 使用 allow_insecure=1，不建议生产使用。"
+        tuic_change "$config" --insecure
+        ;;
+    7)
+        ui_read_or_cancel cc "请输入 Congestion Control（bbr/cubic/new_reno，q 取消）： " || return $?
+        tuic_change "$config" --cc "$cc"
+        ;;
+    0 | q | Q)
+        return "${UI_RETURN_TO_MENU:-130}"
+        ;;
+    *)
+        ui_error "无效选项。"
+        return 1
+        ;;
+    esac
+}
+
 # 中文注释：TUIC 子菜单；CLI 路径不会调用 clear/pause。
 tuic_menu() {
     local choice config menu_status
@@ -1414,12 +1703,18 @@ tuic_menu() {
             ;;
         3)
             ui_blank
-            config=$(tuic_detect_config | head -n 1)
-            [[ $config ]] && tuic_url "$config" || ui_warn "未找到 TUIC 配置。"
+            tuic_menu_select_config "查看 TUIC 客户端 URL"
+            menu_status=$?
+            if [[ $menu_status -eq 0 ]]; then
+                config=$tuic_menu_selected_config
+                tuic_url "$config"
+            elif [[ $menu_status -ne ${UI_RETURN_TO_MENU:-130} ]]; then
+                ui_warn "未找到 TUIC 配置。"
+            fi
             ui_pause
             ;;
         4)
-            ui_warn "TUIC 菜单修改入口为最小占位，请使用 CLI: sing-box tuic change <config> ..."
+            tuic_menu_change_config
             ui_pause
             ;;
         5)
@@ -1428,8 +1723,12 @@ tuic_menu() {
             ui_pause
             ;;
         6)
-            ui_read_or_cancel config "请输入要删除的 TUIC 配置名（q 取消）： " || continue
-            tuic_delete "$config"
+            tuic_menu_select_config "删除 TUIC 配置"
+            menu_status=$?
+            if [[ $menu_status -eq 0 ]]; then
+                config=$tuic_menu_selected_config
+                tuic_delete "$config"
+            fi
             ui_pause
             ;;
         7)
