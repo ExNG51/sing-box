@@ -104,8 +104,9 @@ assert_match 'allow_insecure=1' "$REPO_ROOT/src/core.sh" \
     "core.sh should still output TUIC allow_insecure URL baseline"
 pass "current TUIC render and URL baseline is locatable"
 
-if grep -Eq 'tuic_port_hopping|port-hopping|NFT_TABLE_NAME' "$REPO_ROOT/src/core.sh" "$REPO_ROOT/src/firewall.sh"; then
-    pass "TUIC port-hopping production integration already exists"
-else
-    pending "TUIC port-hopping production integration is intentionally absent before Task D"
-fi
+assert_file "$REPO_ROOT/src/tuic_port_hopping.sh"
+assert_match 'tuic_hop_create_or_update_instance' "$REPO_ROOT/src/tuic_port_hopping.sh" \
+    "Port-Hopping production module should implement create/update"
+assert_match 'tuic_maybe_enable_hop_after_add|TUIC_HOP_OPTIONAL_NOTICE' "$REPO_ROOT/src/tuic.sh" \
+    "TUIC add should keep Port-Hopping optional unless explicitly enabled"
+pass "Port-Hopping production module exists and TUIC basic render remains opt-in"

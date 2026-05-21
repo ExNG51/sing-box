@@ -59,7 +59,16 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURE_DIR="$REPO_ROOT/tests/fixtures/port-detection"
 TUIC_FIXTURE_DIR="$REPO_ROOT/tests/fixtures/tuic"
 mock_bin=$(mktemp -d "${TMPDIR:-/tmp}/sing-box-tuic-test.XXXXXX") || fail "failed to create temp mock bin"
-trap 'rm -rf "$mock_bin"' EXIT
+hop_root=$(mktemp -d "${TMPDIR:-/tmp}/sing-box-tuic-hop.XXXXXX") || fail "failed to create temp hop root"
+trap 'rm -rf "$mock_bin" "$hop_root"' EXIT
+export TUIC_HOP_BASE_DIR="$hop_root/etc/tuic-port-hopping"
+export TUIC_HOP_INSTANCE_DIR="$TUIC_HOP_BASE_DIR/instances"
+export TUIC_HOP_NFT_RULE_DIR="$hop_root/etc/nftables.d"
+export TUIC_HOP_APPLY_SCRIPT="$hop_root/usr/local/sbin/apply-tuic-port-hopping.sh"
+export TUIC_HOP_SYSTEMD_TEMPLATE="$hop_root/etc/systemd/system/tuic-port-hopping@.service"
+export TUIC_HOP_SKIP_SYSTEMD=1
+export TUIC_HOP_SKIP_NFT=1
+export TUIC_HOP_SKIP_UFW=1
 
 cat >"$mock_bin/ss" <<'MOCK_SS'
 #!/usr/bin/env bash
@@ -150,16 +159,24 @@ pass "TUIC port validation is protocol-aware for UDP/443"
 
 audit_output=$(tuic_audit_json "$TUIC_FIXTURE_DIR")
 assert_json_string_expr "$audit_output" \
-    '.total == 4 and .insecure >= 1 and .domain_cert >= 2 and .password_equals_uuid >= 1 and .udp_443 >= 2 and .port_hopping == "not integrated"' \
-    "TUIC audit JSON should count fixture modes and keep port-hopping not integrated"
+    '.total == 4 and .insecure >= 1 and .domain_cert >= 2 and .password_equals_uuid >= 1 and .udp_443 >= 2 and .port_hopping_enabled == 0 and .port_hopping_residual == 0' \
+    "TUIC audit JSON should count fixture modes and port-hopping states"
 pass "TUIC audit counts lifecycle fixture states without modifying configs"
 
 assert_match 'load tuic\.sh' "$REPO_ROOT/src/core.sh" \
     "core.sh should load TUIC module for structured namespace"
 assert_match 'tuic_main' "$REPO_ROOT/src/core.sh" \
     "core.sh should dispatch sing-box tuic namespace"
-assert_match 'Port-Hopping lifecycle integration is reserved for Task D' "$REPO_ROOT/src/tuic.sh" \
-    "TUIC module should keep Port-Hopping as Task D notice"
-assert_not_match 'tuic-port-hopping@|NFT_TABLE_NAME|nft add|nft -f|ufw allow .*:.*udp' "$REPO_ROOT/src/tuic.sh" \
-    "TUIC module should not manage Port-Hopping production objects"
-pass "TUIC namespace and Task D boundary are locatable"
+assert_match 'tuic_load_hop' "$REPO_ROOT/src/tuic.sh" \
+    "TUIC module should load tuic_port_hopping.sh on demand"
+assert_match 'hop\)' "$REPO_ROOT/src/tuic.sh" \
+    "TUIC namespace should dispatch sing-box tuic hop subcommands"
+assert_match 'tuic_show_hop_summary' "$REPO_ROOT/src/tuic.sh" \
+    "tuic_show_summary should display Port-Hopping status"
+assert_match 'tuic_prepare_hop_change_action' "$REPO_ROOT/src/tuic.sh" \
+    "tuic change port should detect associated Port-Hopping instances"
+assert_match 'tuic_handle_hop_before_delete' "$REPO_ROOT/src/tuic.sh" \
+    "tuic delete should detect associated Port-Hopping instances"
+assert_not_match 'nft flush ruleset|systemctl disable --now tuic-port-hopping@\*\.service|ufw reset' "$REPO_ROOT/src/tuic.sh" \
+    "TUIC lifecycle wiring should not use broad Port-Hopping system operations"
+pass "TUIC namespace and Task D lifecycle integration are locatable"
