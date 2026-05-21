@@ -771,6 +771,10 @@ tuic_check_pending_config() {
 
 # 中文注释：生产写入失败后尝试 rollback，至少保证新配置被移除。
 tuic_rollback_after_failure() {
+    if type rollback_current_backup_transaction >/dev/null 2>&1; then
+        rollback_current_backup_transaction --yes || true
+        return 0
+    fi
     if type rollback_latest_backup >/dev/null 2>&1; then
         rollback_latest_backup --yes || true
     elif [[ ${tuic_config_file:-} && -f $tuic_config_file && $(type -t safe_remove_path) ]]; then

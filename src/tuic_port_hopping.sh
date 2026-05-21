@@ -477,6 +477,14 @@ tuic_hop_precheck_remove_paths() {
     done
 }
 
+tuic_hop_rollback_after_failure() {
+    if type rollback_current_backup_transaction >/dev/null 2>&1; then
+        rollback_current_backup_transaction --yes >/dev/null 2>&1 || true
+        return 0
+    fi
+    type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+}
+
 tuic_hop_write_common_files() {
     local apply_content systemd_content
 
@@ -573,7 +581,7 @@ tuic_hop_create_or_update_instance() {
             tuic_hop_enable_instance "$real_port" &&
             tuic_hop_configure_ufw_rules "$real_port" "$range_start" "$range_end"
     } || {
-        type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+        tuic_hop_rollback_after_failure
         tuic_hop_warn "TUIC Port-Hopping 写入失败，已尝试回滚。"
         tuic_hop_report_residuals "$real_port"
         return 1
@@ -875,12 +883,12 @@ tuic_hop_delete_instance() {
     fi
     if type backup_path_before_write >/dev/null 2>&1; then
         backup_path_before_write "$cfg" || {
-            type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+            tuic_hop_rollback_after_failure
             tuic_hop_report_residuals "$real_port"
             return 1
         }
         backup_path_before_write "$nft_file" || {
-            type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+            tuic_hop_rollback_after_failure
             tuic_hop_report_residuals "$real_port"
             return 1
         }
@@ -889,7 +897,7 @@ tuic_hop_delete_instance() {
         if systemctl disable --now "$service" >/dev/null 2>&1; then
             state_mutated=true
         else
-            type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+            tuic_hop_rollback_after_failure
             tuic_hop_warn "停止/禁用 TUIC Port-Hopping systemd 实例失败，已中止删除。"
             tuic_hop_report_residuals "$real_port"
             return 1
@@ -899,14 +907,14 @@ tuic_hop_delete_instance() {
         if nft delete table inet "$table"; then
             state_mutated=true
         else
-            type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+            tuic_hop_rollback_after_failure
             tuic_hop_warn "删除 TUIC Port-Hopping nft table 失败，已中止删除。"
             tuic_hop_report_residuals "$real_port"
             return 1
         fi
     fi
     tuic_hop_safe_remove_path "$cfg" "$nft_file" || {
-        type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+        tuic_hop_rollback_after_failure
         tuic_hop_warn "TUIC Port-Hopping 删除失败，已尝试回滚。"
         [[ $state_mutated == true ]] && tuic_hop_warn "systemd/nftables 运行态可能已变化，不保证已恢复。"
         tuic_hop_report_residuals "$real_port"
