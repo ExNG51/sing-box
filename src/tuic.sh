@@ -396,6 +396,62 @@ tuic_validate_port_available() {
     return 0
 }
 
+# 中文注释：生成一个未被 UDP 监听占用的随机端口，供 TUIC 交互式菜单使用。
+tuic_generate_available_udp_port() {
+    local candidate
+    local tries=0
+
+    while [[ $tries -lt 50 ]]; do
+        candidate=$((((RANDOM << 15) | RANDOM) % 55536 + 10000))
+        if ! is_listen_port_used_for_protocol TUIC "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+        tries=$((tries + 1))
+    done
+
+    return 1
+}
+
+# 中文注释：为交互式 TUIC 添加流程建议 UDP 监听端口。
+# 优先建议 UDP/443；若 UDP/443 已占用，回退到 UDP/10443；
+# 若 UDP/10443 也不可用，则随机选择一个可用 UDP 端口。
+tuic_suggest_listen_port() {
+    local preferred_port=443
+    local fallback_port=10443
+    local random_port
+
+    if ! is_listen_port_used_for_protocol TUIC "$preferred_port"; then
+        printf '%s\n' "$preferred_port"
+        return 0
+    fi
+
+    if ! is_listen_port_used_for_protocol TUIC "$fallback_port"; then
+        printf '%s\n' "$fallback_port"
+        return 0
+    fi
+
+    random_port=$(tuic_generate_available_udp_port) || return 1
+    printf '%s\n' "$random_port"
+}
+
+# 中文注释：解释 TUIC 菜单建议端口的原因。
+tuic_describe_suggested_port() {
+    local suggested_port=$1
+
+    case "$suggested_port" in
+    443)
+        printf 'UDP/443 当前未被占用，可与 AnyTLS TCP/443 共存。\n'
+        ;;
+    10443)
+        printf 'UDP/443 已被占用，已回退到常用备用端口 UDP/10443。\n'
+        ;;
+    *)
+        printf 'UDP/443 与 UDP/10443 均不可用，已随机选择一个可用 UDP 端口。\n'
+        ;;
+    esac
+}
+
 # 中文注释：TUIC 使用 UDP/443 时执行本机与云防火墙提示。
 tuic_preflight_udp_443_if_needed() {
     [[ ${is_gen:-} || ${tuic_dry_run:-} || $tuic_port != 443 ]] && return 0
@@ -1245,7 +1301,7 @@ tuic_menu_status_line() {
 
 # 中文注释：交互式添加 TUIC；证书模式由菜单选择，实际写入仍复用 tuic_add。
 tuic_menu_add_config() {
-    local choice port uuid password cc domain cert_path key_path
+    local choice port uuid password cc domain cert_path key_path suggested_port suggested_reason
     local args=()
 
     ui_blank
@@ -1278,8 +1334,18 @@ tuic_menu_add_config() {
         ;;
     esac
 
-    ui_read_or_cancel port "请输入 TUIC UDP 监听端口（默认 10443，回车使用默认值，q 取消）： " || return $?
-    port=${port:-10443}
+    suggested_port=$(tuic_suggest_listen_port) || suggested_port=10443
+    suggested_reason=$(tuic_describe_suggested_port "$suggested_port")
+
+    ui_blank
+    ui_kv "建议 TUIC UDP 监听端口" "$suggested_port"
+    ui_dim "说明：$suggested_reason"
+    ui_read_or_cancel port "请输入 TUIC UDP 监听端口（回车使用建议值，q 取消）： " || return $?
+    port=${port:-$suggested_port}
+    tuic_validate_port_available "$port" "" || {
+        ui_error "UDP $port 已被占用，无法添加 TUIC。"
+        return 1
+    }
     ui_read_or_cancel uuid "请输入 UUID（默认 auto，q 取消）： " || return $?
     uuid=${uuid:-auto}
     ui_read_or_cancel password "请输入 Password（默认 auto，q 取消）： " || return $?
