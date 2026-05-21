@@ -6,6 +6,7 @@ IS_BACKUP_ACTIVE=${IS_BACKUP_ACTIVE:-false}
 IS_BACKUP_OPERATION=
 IS_BACKUP_TXN_ID=
 IS_BACKUP_TXN_DIR=
+BACKUP_TRANSACTION_DIR=${BACKUP_TRANSACTION_DIR:-}
 IS_BACKUP_CREATED_AT=
 IS_BACKUP_RECORDED_PATHS=$'\n'
 IS_BACKUP_MANIFEST_FILES=()
@@ -180,6 +181,7 @@ init_backup_transaction() {
     IS_BACKUP_OPERATION=$operation
     IS_BACKUP_TXN_ID=$candidate
     IS_BACKUP_TXN_DIR=$is_backup_dir/$candidate
+    BACKUP_TRANSACTION_DIR=$IS_BACKUP_TXN_DIR
     IS_BACKUP_CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
     IS_BACKUP_RECORDED_PATHS=$'\n'
     IS_BACKUP_MANIFEST_FILES=()
@@ -265,17 +267,21 @@ backup_standard_managed_paths() {
     backup_path_before_write "${is_shell_profile:-/root/.bashrc}"
 }
 
-finalize_backup_transaction() {
-    local manifest_tmp latest_tmp
+write_backup_transaction_manifest() {
+    local transaction_dir=${1:-$IS_BACKUP_TXN_DIR}
+    local manifest_tmp
     local script_repo=${is_sh_repo:-ExNG51/sing-box}
     local script_version=${is_sh_ver:-unknown}
     local sing_before=${is_core_ver:-unknown}
     local init_system=${is_init_system:-unknown}
     local i
 
-    [[ $IS_BACKUP_ACTIVE == true ]] || return 0
+    [[ $transaction_dir ]] || {
+        backup_die "备份事务目录为空，无法写入 manifest."
+        return 1
+    }
 
-    manifest_tmp=$IS_BACKUP_TXN_DIR/manifest.json.tmp
+    manifest_tmp=$transaction_dir/manifest.json.tmp
     {
         printf '{\n'
         printf '  "schema_version":1,\n'
@@ -295,7 +301,15 @@ finalize_backup_transaction() {
         printf '  ]\n'
         printf '}\n'
     } >"$manifest_tmp" || return 1
-    mv -f "$manifest_tmp" "$IS_BACKUP_TXN_DIR/manifest.json" || return 1
+    mv -f "$manifest_tmp" "$transaction_dir/manifest.json" || return 1
+}
+
+finalize_backup_transaction() {
+    local latest_tmp
+
+    [[ $IS_BACKUP_ACTIVE == true ]] || return 0
+
+    write_backup_transaction_manifest "$IS_BACKUP_TXN_DIR" || return 1
 
     # latest 指针使用临时文件 + mv，避免读到半写入内容。
     latest_tmp=$is_backup_dir/latest.tmp.$$
@@ -304,6 +318,7 @@ finalize_backup_transaction() {
 
     IS_LAST_BACKUP_TXN_DIR=$IS_BACKUP_TXN_DIR
     IS_BACKUP_ACTIVE=false
+    BACKUP_TRANSACTION_DIR=
 }
 
 safe_write_file() {
@@ -562,6 +577,113 @@ is_managed_remove_path() {
     return 1
 }
 
+is_managed_rollback_path() {
+    local path=$1
+    local prefix core_dir sh_dir conf_dir caddyfile caddy_conf
+    local bin_dir sh_bin sb_bin caddy_bin log_dir
+    local hop_base_dir hop_instance_dir hop_nft_dir hop_apply_script hop_systemd_template
+    local service_dropin_dir
+
+    path=$(strip_trailing_slashes_for_remove "$path")
+    prefix=$(managed_remove_prefix)
+    core_dir=${is_core_dir:-${prefix}/etc/${is_core:-sing-box}}
+    sh_dir=${is_sh_dir:-$core_dir/sh}
+    conf_dir=${is_conf_dir:-$core_dir/conf}
+    caddyfile=${is_caddyfile:-${prefix}/etc/caddy/Caddyfile}
+    caddy_conf=${is_caddy_conf:-${prefix}/etc/caddy/conf}
+    bin_dir=$core_dir/bin
+    sh_bin=${is_sh_bin:-${prefix}/usr/local/bin/${is_core:-sing-box}}
+    sb_bin=${sh_bin/${is_core:-sing-box}/sb}
+    caddy_bin=${is_caddy_bin:-${prefix}/usr/local/bin/caddy}
+    log_dir=${is_log_dir:-${prefix}/var/log/${is_core:-sing-box}}
+    hop_base_dir=${TUIC_HOP_BASE_DIR:-${prefix}/etc/tuic-port-hopping}
+    hop_instance_dir=${TUIC_HOP_INSTANCE_DIR:-$hop_base_dir/instances}
+    hop_nft_dir=${TUIC_HOP_NFT_RULE_DIR:-${prefix}/etc/nftables.d}
+    hop_apply_script=${TUIC_HOP_APPLY_SCRIPT:-${prefix}/usr/local/sbin/apply-tuic-port-hopping.sh}
+    hop_systemd_template=${TUIC_HOP_SYSTEMD_TEMPLATE:-${prefix}/etc/systemd/system/tuic-port-hopping@.service}
+    service_dropin_dir=${prefix}/etc/systemd/system/${is_core:-sing-box}.service.d
+
+    is_managed_shell_profile_path "$path" && return 0
+    [[ $path == "$core_dir" ]] && return 1
+    [[ $path == "$core_dir"/backups || $path == "$core_dir"/backups/* ]] && return 1
+    path_is_under_dir "$path" "$core_dir" && return 0
+    path_is_under_dir "$path" "$sh_dir" && return 0
+    [[ $path == "${is_config_json:-$core_dir/config.json}" ]] && return 0
+    path_is_direct_child_with_suffix "$path" "$conf_dir" ".json" && return 0
+
+    [[ $path == "$caddyfile" ]] && return 0
+    path_is_direct_child_with_suffix "$path" "$caddy_conf" ".conf" && return 0
+    path_is_direct_child_with_suffix "$path" "$caddy_conf" ".conf.add" && return 0
+
+    [[ $path == "${is_core_bin:-$bin_dir/${is_core:-sing-box}}" ]] && return 0
+    [[ $path == "$sh_bin" || $path == "$sb_bin" ]] && return 0
+    [[ $path == "${prefix}/usr/local/bin/${is_core:-sing-box}" || $path == "${prefix}/usr/local/bin/sb" ]] && return 0
+    [[ $path == "$caddy_bin" ]] && return 0
+
+    [[ $path == "${prefix}/lib/systemd/system/${is_core:-sing-box}.service" ]] && return 0
+    [[ $path == "${prefix}/lib/systemd/system/caddy.service" ]] && return 0
+    [[ $path == "${prefix}/etc/systemd/system/${is_core:-sing-box}.service" ]] && return 0
+    [[ $path == "${prefix}/etc/systemd/system/caddy.service" ]] && return 0
+    [[ $path == "$service_dropin_dir" || $path == "$service_dropin_dir"/* ]] && return 0
+    [[ $path == "${prefix}/etc/init.d/${is_core:-sing-box}" ]] && return 0
+    [[ $path == "${prefix}/etc/init.d/caddy" ]] && return 0
+
+    [[ $path == "$log_dir" ]] && return 0
+    path_is_under_dir "$path" "$log_dir" && return 0
+
+    [[ $path == "$hop_base_dir" || $path == "$hop_instance_dir" ]] && return 0
+    path_is_direct_child_with_suffix "$path" "$hop_instance_dir" ".env" && return 0
+    path_is_direct_child_with_prefix_suffix "$path" "$hop_nft_dir" "tuic-port-hopping-" ".nft" && return 0
+    [[ $path == "$hop_apply_script" ]] && return 0
+    [[ $path == "$hop_systemd_template" ]] && return 0
+    return 1
+}
+
+# 中文注释：校验 rollback manifest 中的路径是否属于脚本允许管理的范围。
+validate_rollback_manifest_path() {
+    local path=${1-}
+    local normalized backup_root hop_nft_dir
+
+    [[ $path ]] || {
+        backup_die "rollback manifest 中存在空路径."
+        return 1
+    }
+    [[ $path == /* ]] || {
+        backup_die "rollback manifest 中存在相对路径: $path"
+        return 1
+    }
+    case $path in
+    "." | ".." | "*" | ./* | ../* | *"/../"* | *"/.." | *"/./"* | *"/.")
+        backup_die "rollback manifest 中存在危险路径: $path"
+        return 1
+        ;;
+    esac
+
+    normalized=$(strip_trailing_slashes_for_remove "$path")
+    hop_nft_dir=$(strip_trailing_slashes_for_remove "${TUIC_HOP_NFT_RULE_DIR:-$(managed_remove_prefix)/etc/nftables.d}")
+    case $normalized in
+    / | /etc | /usr | /lib | /root | /var | /tmp | /etc/systemd | /etc/systemd/system | /etc/nftables.d)
+        backup_die "rollback manifest 拒绝系统宽路径: $path"
+        return 1
+        ;;
+    esac
+    [[ $normalized == "$hop_nft_dir" ]] && {
+        backup_die "rollback manifest 拒绝 nftables 宽目录: $path"
+        return 1
+    }
+
+    backup_root=$(strip_trailing_slashes_for_remove "${is_backup_dir:-${is_core_dir:-/etc/sing-box}/backups}")
+    if [[ $normalized == "$backup_root" || $normalized == "$backup_root"/* ]]; then
+        backup_die "rollback manifest 拒绝备份目录路径: $path"
+        return 1
+    fi
+
+    is_managed_rollback_path "$normalized" || {
+        backup_die "rollback manifest 包含非脚本管理路径: $path"
+        return 1
+    }
+}
+
 assert_safe_remove_path() {
     local path=${1-}
     local normalized
@@ -688,6 +810,9 @@ rollback_validate_manifest() {
         backup_die "rollback manifest 损坏或 schema 不受支持: $manifest"
         return 1
     }
+    while IFS=$'\t' read -r path existed; do
+        validate_rollback_manifest_path "$path" "$existed" || return 1
+    done < <(jq -r '.files[] | [(.path // ""), (.existed | tostring)] | @tsv' "$manifest")
 }
 
 rollback_preflight_backup_files() {
@@ -790,10 +915,21 @@ rollback_apply_manifest() {
     done < <(jq -r '.files[] | [(.existed | tostring), .path, (.backup_path // "")] | @tsv' "$manifest")
 }
 
-rollback_latest_backup() {
+rollback_backup_transaction_dir() {
+    local txn_dir=$1
+    shift
     local assume_yes=false
     local dry_run=false
-    local txn_dir manifest
+    local manifest
+
+    [[ $txn_dir ]] || {
+        backup_die "rollback 事务目录为空."
+        return 1
+    }
+    [[ -d $txn_dir ]] || {
+        backup_die "rollback 事务目录不存在: $txn_dir"
+        return 1
+    }
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -812,7 +948,6 @@ rollback_latest_backup() {
         esac
     done
 
-    txn_dir=$(rollback_latest_dir) || return 1
     manifest=$txn_dir/manifest.json
     rollback_validate_manifest "$manifest" || return 1
     rollback_preflight_backup_files "$txn_dir" "$manifest" || return 1
@@ -830,4 +965,35 @@ rollback_latest_backup() {
     rollback_manifest_touches "$manifest" 'sing-box|/conf/|config\.json' && rollback_service_action restart "${is_core:-sing-box}"
     rollback_manifest_touches "$manifest" 'caddy|Caddyfile' && rollback_service_action restart caddy
     printf 'Rollback complete.\n'
+}
+
+rollback_latest_backup() {
+    local txn_dir
+
+    txn_dir=$(rollback_latest_dir) || return 1
+    rollback_backup_transaction_dir "$txn_dir" "$@"
+}
+
+# 中文注释：回滚当前尚未 finalize 的备份事务，避免误回滚上一轮 latest。
+rollback_current_backup_transaction() {
+    local current_transaction_dir=${BACKUP_TRANSACTION_DIR:-${IS_BACKUP_TXN_DIR:-}}
+
+    [[ ${IS_BACKUP_ACTIVE:-} == true ]] || {
+        backup_die "未找到当前活动备份事务，无法回滚本轮操作."
+        return 1
+    }
+    [[ $current_transaction_dir ]] || {
+        backup_die "当前备份事务目录为空，无法回滚本轮操作."
+        return 1
+    }
+    [[ -d $current_transaction_dir ]] || {
+        backup_die "当前备份事务目录不存在: $current_transaction_dir"
+        return 1
+    }
+
+    write_backup_transaction_manifest "$current_transaction_dir" || return 1
+    IS_BACKUP_ACTIVE=false
+    BACKUP_TRANSACTION_DIR=
+    IS_LAST_BACKUP_TXN_DIR=$current_transaction_dir
+    rollback_backup_transaction_dir "$current_transaction_dir" "$@"
 }
