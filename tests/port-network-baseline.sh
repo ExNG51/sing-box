@@ -31,6 +31,14 @@ assert_match() {
     fi
 }
 
+assert_eq() {
+    local expected=$1
+    local actual=$2
+    local description=$3
+
+    [[ $actual == "$expected" ]] || fail "$description (expected: $expected, actual: $actual)"
+}
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURE_DIR="$REPO_ROOT/tests/fixtures/port-detection"
 
@@ -44,43 +52,146 @@ do
 done
 pass "port-detection fixtures exist"
 
-assert_match 'LISTEN[[:space:]].*:443' "$FIXTURE_DIR/ss-tcp-443-used.txt" \
-    "tcp 443 fixture should contain LISTEN on :443"
-assert_match 'UNCONN[[:space:]].*:443' "$FIXTURE_DIR/ss-udp-443-used.txt" \
-    "udp 443 fixture should contain UNCONN on :443"
-assert_match 'LISTEN[[:space:]].*:443' "$FIXTURE_DIR/ss-tcp-udp-443-used.txt" \
-    "combined fixture should contain tcp 443"
-assert_match 'UNCONN[[:space:]].*:443' "$FIXTURE_DIR/ss-tcp-udp-443-used.txt" \
-    "combined fixture should contain udp 443"
-if grep -Eq '(^|[[:space:]]):443([[:space:]]|$)' "$FIXTURE_DIR/ss-no-443-used.txt"; then
-    fail "no-443 fixture unexpectedly contains :443"
-fi
-pass "port-detection fixtures distinguish tcp and udp samples"
+mock_bin=$(mktemp -d "${TMPDIR:-/tmp}/sing-box-port-test.XXXXXX") || fail "failed to create temp mock bin"
+trap 'rm -rf "$mock_bin"' EXIT
 
-assert_match 'is_port_used\(\)' "$REPO_ROOT/src/core.sh" \
-    "core.sh should still define is_port_used baseline"
-assert_match 'netstat -tunlp|ss -tunlp' "$REPO_ROOT/src/core.sh" \
-    "is_port_used should still use mixed tcp/udp probing before Task A"
-assert_match 'get_port\(\)' "$REPO_ROOT/src/core.sh" \
-    "core.sh should still define get_port"
-assert_match 'is_test port_used \$tmp_port' "$REPO_ROOT/src/core.sh" \
-    "get_port should still depend on mixed port_used baseline"
-assert_match 'is_test port_used \$REPLY' "$REPO_ROOT/src/core.sh" \
-    "ask string port should still depend on mixed port_used baseline"
-assert_match 'is_test port_used \$is_new_port' "$REPO_ROOT/src/core.sh" \
-    "change port should still depend on mixed port_used baseline"
-pass "current mixed port detection baseline is locatable"
+cat >"$mock_bin/ss" <<'MOCK_SS'
+#!/usr/bin/env bash
+case "$1" in
+-ltnH) cat "$PORT_TEST_TCP_FIXTURE" ;;
+-lunH) cat "$PORT_TEST_UDP_FIXTURE" ;;
+*) exit 1 ;;
+esac
+MOCK_SS
+chmod +x "$mock_bin/ss"
+
+PATH="$mock_bin:$PATH"
+
+# shellcheck source=/dev/null
+source "$REPO_ROOT/src/core.sh"
+
+assert_tcp_used() {
+    local description=$1
+
+    unset is_tcp_used_port is_udp_used_port is_used_port is_cant_test_port
+    is_tcp_port_used 443 >/dev/null || fail "$description"
+}
+
+assert_tcp_free() {
+    local description=$1
+
+    unset is_tcp_used_port is_udp_used_port is_used_port is_cant_test_port
+    is_tcp_port_used 443 >/dev/null && fail "$description"
+}
+
+assert_udp_used() {
+    local description=$1
+
+    unset is_tcp_used_port is_udp_used_port is_used_port is_cant_test_port
+    is_udp_port_used 443 >/dev/null || fail "$description"
+}
+
+assert_udp_free() {
+    local description=$1
+
+    unset is_tcp_used_port is_udp_used_port is_used_port is_cant_test_port
+    is_udp_port_used 443 >/dev/null && fail "$description"
+}
+
+assert_protocol_used() {
+    local protocol=$1
+    local description=$2
+
+    unset is_tcp_used_port is_udp_used_port is_used_port is_cant_test_port
+    is_listen_port_used_for_protocol "$protocol" 443 >/dev/null || fail "$description"
+}
+
+assert_protocol_free() {
+    local protocol=$1
+    local description=$2
+
+    unset is_tcp_used_port is_udp_used_port is_used_port is_cant_test_port
+    is_listen_port_used_for_protocol "$protocol" 443 >/dev/null && fail "$description"
+}
+
+PORT_TEST_TCP_FIXTURE="$FIXTURE_DIR/ss-tcp-443-used.txt"
+PORT_TEST_UDP_FIXTURE="$FIXTURE_DIR/ss-no-443-used.txt"
+export PORT_TEST_TCP_FIXTURE PORT_TEST_UDP_FIXTURE
+assert_tcp_used "tcp 443 fixture should make tcp detector true"
+assert_udp_free "tcp 443 fixture should make udp detector false"
+assert_protocol_used AnyTLS "tcp 443 fixture should block AnyTLS TCP 443"
+assert_protocol_free TUIC "tcp 443 fixture should not block TUIC UDP 443"
+pass "tcp-only fixture separates tcp used from udp free"
+
+PORT_TEST_TCP_FIXTURE="$FIXTURE_DIR/ss-no-443-used.txt"
+PORT_TEST_UDP_FIXTURE="$FIXTURE_DIR/ss-udp-443-used.txt"
+export PORT_TEST_TCP_FIXTURE PORT_TEST_UDP_FIXTURE
+assert_tcp_free "udp 443 fixture should make tcp detector false"
+assert_udp_used "udp 443 fixture should make udp detector true"
+assert_protocol_free AnyTLS "udp 443 fixture should not block AnyTLS TCP 443"
+assert_protocol_used TUIC "udp 443 fixture should block TUIC UDP 443"
+pass "udp-only fixture separates udp used from tcp free"
+
+PORT_TEST_TCP_FIXTURE="$FIXTURE_DIR/ss-tcp-udp-443-used.txt"
+PORT_TEST_UDP_FIXTURE="$FIXTURE_DIR/ss-tcp-udp-443-used.txt"
+export PORT_TEST_TCP_FIXTURE PORT_TEST_UDP_FIXTURE
+assert_tcp_used "combined fixture should make tcp detector true"
+assert_udp_used "combined fixture should make udp detector true"
+pass "combined fixture reports tcp and udp 443 used"
+
+PORT_TEST_TCP_FIXTURE="$FIXTURE_DIR/ss-no-443-used.txt"
+PORT_TEST_UDP_FIXTURE="$FIXTURE_DIR/ss-no-443-used.txt"
+export PORT_TEST_TCP_FIXTURE PORT_TEST_UDP_FIXTURE
+assert_tcp_free "no-443 fixture should make tcp detector false"
+assert_udp_free "no-443 fixture should make udp detector false"
+pass "no-443 fixture reports tcp and udp 443 free"
+
+assert_eq tcp "$(get_inbound_listen_network AnyTLS)" "AnyTLS should map to tcp"
+assert_eq udp "$(get_inbound_listen_network TUIC)" "TUIC should map to udp"
+assert_eq udp "$(get_inbound_listen_network Hysteria2)" "Hysteria2 should map to udp"
+assert_eq any "$(get_inbound_listen_network Shadowsocks)" "Shadowsocks should map to any"
+pass "protocol listen network mappings are protocol-aware"
+
+assert_match 'is_tcp_port_used\(\)' "$REPO_ROOT/src/core.sh" \
+    "core.sh should expose TCP port detector"
+assert_match 'is_udp_port_used\(\)' "$REPO_ROOT/src/core.sh" \
+    "core.sh should expose UDP port detector"
+assert_match 'is_any_port_used\(\)' "$REPO_ROOT/src/core.sh" \
+    "core.sh should preserve conservative any-port detector"
+assert_match 'is_listen_port_used_for_protocol\(\)' "$REPO_ROOT/src/core.sh" \
+    "core.sh should expose protocol-aware port detector"
+assert_match 'ss -ltnH' "$REPO_ROOT/src/core.sh" \
+    "TCP detector should prefer ss -ltnH"
+assert_match 'ss -lunH' "$REPO_ROOT/src/core.sh" \
+    "UDP detector should prefer ss -lunH"
+pass "protocol-aware port detection helpers are locatable"
+
+assert_match 'assert_anytls_acme_port_available\(\)' "$REPO_ROOT/src/core.sh" \
+    "core.sh should define AnyTLS ACME port preflight"
+assert_match 'is_tcp_port_used 443' "$REPO_ROOT/src/core.sh" \
+    "AnyTLS ACME port preflight should check TCP 443 only"
+assert_match 'preflight_udp_443_if_needed\(\)' "$REPO_ROOT/src/core.sh" \
+    "core.sh should define UDP 443 preflight"
+assert_match 'ensure_udp_443_firewall' "$REPO_ROOT/src/core.sh" \
+    "UDP 443 preflight should call firewall helper"
+pass "AnyTLS ACME and UDP 443 preflight call sites are locatable"
 
 assert_match 'allow_ufw_tcp_443\(\)' "$REPO_ROOT/src/firewall.sh" \
-    "firewall.sh should expose UFW TCP 443 helper"
+    "firewall.sh should keep UFW TCP 443 helper"
 assert_match 'allow_firewalld_tcp_443\(\)' "$REPO_ROOT/src/firewall.sh" \
-    "firewall.sh should expose firewalld TCP 443 helper"
+    "firewall.sh should keep firewalld TCP 443 helper"
 assert_match 'warn_manual_firewall_tcp_443\(\)' "$REPO_ROOT/src/firewall.sh" \
-    "firewall.sh should expose manual TCP 443 guidance"
-pass "current TCP 443 firewall helpers are locatable"
+    "firewall.sh should keep manual TCP 443 guidance"
+pass "TCP 443 firewall helpers remain locatable"
 
-if grep -Eq 'allow_ufw_udp_443|allow_firewalld_udp_443|ensure_.*udp_443' "$REPO_ROOT/src/firewall.sh"; then
-    pass "UDP 443 helper already exists"
-else
-    pending "UDP 443 firewall helper is intentionally absent before Task A"
-fi
+assert_match 'allow_ufw_udp_443\(\)' "$REPO_ROOT/src/firewall.sh" \
+    "firewall.sh should expose UFW UDP 443 helper"
+assert_match 'allow_firewalld_udp_443\(\)' "$REPO_ROOT/src/firewall.sh" \
+    "firewall.sh should expose firewalld UDP 443 helper"
+assert_match 'warn_manual_firewall_udp_443\(\)' "$REPO_ROOT/src/firewall.sh" \
+    "firewall.sh should expose manual UDP 443 guidance"
+assert_match 'ensure_udp_443_firewall\(\)' "$REPO_ROOT/src/firewall.sh" \
+    "firewall.sh should expose UDP 443 firewall preflight"
+assert_match 'warn_udp_443_external_firewall\(\)' "$REPO_ROOT/src/firewall.sh" \
+    "firewall.sh should expose UDP 443 cloud security group warning"
+pass "UDP 443 firewall helpers are locatable"
