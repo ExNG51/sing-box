@@ -55,6 +55,21 @@ cert_detect_provider_profile_in_json() {
     printf '%s\n' "acme-provider"
 }
 
+# 中文注释：仅检测 root certificate_providers 中是否存在匹配 domain 的 ACME provider。
+# 不要求该 provider 已被 inbound 引用，供新协议复用已有 provider。
+cert_detect_root_provider_for_domain_in_json() {
+    local domain=$1
+    local json
+
+    json=$(cat)
+    jq -r --arg domain "$domain" '
+        .certificate_providers[]?
+        | select(.type == "acme")
+        | select(any(.domain[]?; . == $domain))
+        | .tag
+    ' <<<"$json" 2>/dev/null | head -n 1
+}
+
 # 中文注释：扫描 JSON 内容，识别指定 domain 是否已有 legacy tls.acme。
 # 从 stdin 读取 JSON，只做检测，不写入任何生产文件。
 cert_detect_legacy_acme_profile_in_json() {
@@ -154,6 +169,24 @@ cert_detect_profile_for_domain() {
     printf '%s\n' "missing"
 }
 
+# 中文注释：扫描当前 config.json 与 conf/*.json，仅检测 root ACME provider 是否可复用。
+# 不要求该 provider 已被 inbound 使用。
+cert_detect_root_provider_for_domain() {
+    local domain=$1
+    local file tag
+
+    for file in "$is_config_json" "$is_conf_dir"/*.json; do
+        [[ -f $file ]] || continue
+        tag=$(cert_detect_root_provider_for_domain_in_json "$domain" <"$file")
+        [[ $tag ]] && {
+            printf '%s\n' "$tag"
+            return 0
+        }
+    done
+
+    return 1
+}
+
 # 中文注释：根据当前 core 版本选择 ACME 渲染模式。
 # 只做版本判断，不写入任何生产文件。
 cert_acme_mode_for_core() {
@@ -169,21 +202,28 @@ cert_acme_mode_for_core() {
 cert_render_tls_json() {
     local mode=$1
     local domain=$2
-    local data_directory=${3:-}
+    local third_arg=${3:-}
+    local fourth_arg=${4:-}
+    local data_directory
     local provider_tag
+    local certificate_path
+    local key_path
 
-    [[ $data_directory ]] || data_directory=$(cert_default_acme_data_directory)
     case "$mode" in
     acme-provider)
+        data_directory=${third_arg:-$(cert_default_acme_data_directory)}
         provider_tag=$(cert_build_acme_provider_tag "$domain")
         printf 'tls:{enabled:true,certificate_provider:"%s"}\n' "$provider_tag"
         ;;
     legacy-acme)
+        data_directory=${third_arg:-$(cert_default_acme_data_directory)}
         printf 'tls:{enabled:true,acme:{domain:["%s"],data_directory:"%s"}}\n' "$domain" "$data_directory"
         ;;
     file-cert)
-        [[ $3 && $4 ]] || return 1
-        printf 'tls:{enabled:true,certificate_path:"%s",key_path:"%s"}\n' "$3" "$4"
+        certificate_path=$third_arg
+        key_path=$fourth_arg
+        [[ $certificate_path && $key_path ]] || return 1
+        printf 'tls:{enabled:true,certificate_path:"%s",key_path:"%s"}\n' "$certificate_path" "$key_path"
         ;;
     self-signed-insecure)
         printf 'tls:{enabled:true,key_path:"%s",certificate_path:"%s"}\n' \

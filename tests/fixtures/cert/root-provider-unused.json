@@ -1,0 +1,13 @@
+{
+  "certificate_providers": [
+    {
+      "type": "acme",
+      "tag": "acme-example.com",
+      "domain": [
+        "example.com"
+      ],
+      "data_directory": "/etc/sing-box/acme"
+    }
+  ],
+  "inbounds": []
+}

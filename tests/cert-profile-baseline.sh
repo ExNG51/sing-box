@@ -68,6 +68,7 @@ for fixture in \
     no-certificate.json \
     legacy-anytls-acme.json \
     provider-acme.json \
+    root-provider-unused.json \
     file-cert-tuic.json \
     self-signed-tuic.json
 do
@@ -99,6 +100,10 @@ assert_eq legacy-acme "$(cert_detect_profile_in_json example.com <"$FIXTURE_DIR/
     "legacy AnyTLS ACME fixture should be detected as legacy-acme"
 assert_eq acme-provider "$(cert_detect_profile_in_json example.com <"$FIXTURE_DIR/provider-acme.json")" \
     "provider ACME fixture should be detected as acme-provider"
+assert_eq missing "$(cert_detect_profile_in_json example.com <"$FIXTURE_DIR/root-provider-unused.json")" \
+    "unused root provider fixture should remain missing for in-use profile detection"
+assert_eq acme-example.com "$(cert_detect_root_provider_for_domain_in_json example.com <"$FIXTURE_DIR/root-provider-unused.json")" \
+    "unused root provider fixture should expose reusable ACME provider tag"
 assert_eq file-cert "$(cert_detect_profile_in_json example.com <"$FIXTURE_DIR/file-cert-tuic.json")" \
     "file certificate fixture should be detected as file-cert"
 assert_eq self-signed-insecure "$(cert_detect_profile_in_json example.com <"$FIXTURE_DIR/self-signed-tuic.json")" \
@@ -112,10 +117,13 @@ trap 'rm -rf "$tmp_cert_root"' EXIT
 mkdir -p "$tmp_cert_root/conf" || fail "failed to create temp conf dir"
 cp "$FIXTURE_DIR/no-certificate.json" "$tmp_cert_root/config.json" || fail "failed to copy temp config"
 cp "$FIXTURE_DIR/provider-acme.json" "$tmp_cert_root/conf/provider-acme.json" || fail "failed to copy temp provider config"
+cp "$FIXTURE_DIR/root-provider-unused.json" "$tmp_cert_root/conf/root-provider-unused.json" || fail "failed to copy temp unused provider config"
 is_config_json="$tmp_cert_root/config.json"
 is_conf_dir="$tmp_cert_root/conf"
 assert_eq acme-provider "$(cert_detect_profile_for_domain example.com)" \
     "cert_detect_profile_for_domain should scan config.json and conf/*.json"
+assert_eq acme-example.com "$(cert_detect_root_provider_for_domain example.com)" \
+    "cert_detect_root_provider_for_domain should scan reusable root providers"
 pass "certificate module scans config.json and conf/*.json"
 
 is_core_dir=/etc/sing-box
@@ -137,6 +145,9 @@ file_render=$(jq "{inbounds:[{type:\"tuic\",$file_tls}]}" <<<'{}')
 assert_json_string_expr "$file_render" \
     '.inbounds[0].tls.certificate_path == "/etc/sing-box/cert/example.com.cer" and .inbounds[0].tls.key_path == "/etc/sing-box/cert/example.com.key"' \
     "file cert render should include certificate_path and key_path"
+if cert_render_tls_json file-cert example.com /etc/sing-box/cert/example.com.cer >/dev/null; then
+    fail "file cert render should fail without key path"
+fi
 pass "certificate module renders AnyTLS ACME and file certificate fragments"
 
 assert_match 'assert_core_acme_capability\(\)' "$REPO_ROOT/src/core.sh" \
