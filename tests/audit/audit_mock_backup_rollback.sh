@@ -261,10 +261,10 @@ rollback_latest_backup --yes >"$TEST_ROOT/rollback-alias.out"
 assert_file_contains "$is_shell_profile" 'export ORIGINAL_ALIAS_STATE=1' 'rollback must restore alias pre-state'
 assert_file_not_contains "$is_shell_profile" '# >>> sing-box script aliases >>>' 'rollback must remove alias block created after backup'
 
-if rg -n '>>/root/\.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
+if grep -RInE '>>/root/\.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
     fail 'must not append directly to /root/.bashrc'
 fi
-if rg -n 'sed[[:space:]]+-i[[:space:]].*/\$is_core/d.*/root/\.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
+if grep -RInE 'sed[[:space:]]+-i[[:space:]].*/\$is_core/d.*/root/\.bashrc' "$REPO_ROOT/install.sh" "$REPO_ROOT/src" >/dev/null 2>&1; then
     fail 'must not broad sed delete /root/.bashrc aliases'
 fi
 

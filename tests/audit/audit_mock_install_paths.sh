@@ -84,12 +84,12 @@ assert_contains "$INSTALL_OUT" 'Using pinned stable sing-box version: v1.13.8' '
 assert_no_actions "$MOCK_LOG" 'dry-run must not execute mocked package, download, service, or tar commands'
 
 awk '/execute_install\(\)/,/^}/ { print }' "$REPO_ROOT/install.sh" >"$EXECUTE_BLOCK"
-if rg -n '^[[:space:]]*(sb|sing-box)?[[:space:]]*add[[:space:]]+|create[[:space:]]+server|VLESS-REALITY|AnyTLS|TUIC' "$EXECUTE_BLOCK" >"$TEST_ROOT/install-auto-protocol-matches.out" 2>&1; then
+if grep -nE '^[[:space:]]*((sb|sing-box)[[:space:]]+)?add[[:space:]]+|create[[:space:]]+server|VLESS-REALITY|AnyTLS|TUIC' "$EXECUTE_BLOCK" >"$TEST_ROOT/install-auto-protocol-matches.out" 2>&1; then
     cat "$TEST_ROOT/install-auto-protocol-matches.out" >&2
     fail 'execute_install must not create protocol configs'
 fi
 
-rg -n 'open_main_menu_if_interactive|\[ -t 0 \].*\[ -t 1 \]|show_install_complete' "$REPO_ROOT/install.sh" >"$TEST_ROOT/install-interactive-gate.out"
+grep -nE 'open_main_menu_if_interactive|\[ -t 0 \].*\[ -t 1 \]|show_install_complete' "$REPO_ROOT/install.sh" >"$TEST_ROOT/install-interactive-gate.out"
 assert_contains "$TEST_ROOT/install-interactive-gate.out" '[ -t 0 ] && [ -t 1 ]' 'post-install menu must be TTY gated'
 
 printf '[PASS] mock install path audit root: %s\n' "$TEST_ROOT"

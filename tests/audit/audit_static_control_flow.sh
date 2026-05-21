@@ -33,16 +33,16 @@ check() {
     return "$status"
 }
 
-assert_rg() {
+assert_grep() {
     local pattern=$1
     shift
-    rg -n "$pattern" "$@" >>"$LOG" 2>&1
+    grep -RInE -- "$pattern" "$@" >>"$LOG" 2>&1
 }
 
-assert_no_rg() {
+assert_no_grep() {
     local pattern=$1
     shift
-    if rg -n "$pattern" "$@" >>"$LOG" 2>&1; then
+    if grep -RInE -- "$pattern" "$@" >>"$LOG" 2>&1; then
         return 1
     fi
     return 0
@@ -109,32 +109,32 @@ for shell_file in install.sh sing-box.sh src/*.sh tests/*.sh tests/audit/*.sh; d
     check "bash -n $shell_file" bash -n "$shell_file" || true
 done
 
-check "no default add reality command" assert_no_rg '^[[:space:]]*(sb|sing-box)?[[:space:]]*add[[:space:]]+reality([[:space:]]|$)' install.sh src || true
-check "no install/src add reality aliases in default flow" assert_no_rg 'add[[:space:]]+(reality|VLESS-REALITY|vless-reality)' install.sh src || true
-check "manual reality support remains" assert_rg 'VLESS-REALITY|reality' src/core.sh || true
-check "manual AnyTLS support remains" assert_rg 'AnyTLS|anytls' src/core.sh || true
-check "manual TUIC support remains" assert_rg 'TUIC|tuic' src/core.sh || true
-check "install and README no-auto-protocol text" assert_rg 'No proxy protocol has been created automatically|未自动创建任何代理协议|no proxy protocol is created automatically|不会自动创建任何代理协议' install.sh README.md || true
+check "no default add reality command" assert_no_grep '^[[:space:]]*(sb|sing-box)?[[:space:]]*add[[:space:]]+reality([[:space:]]|$)' install.sh src || true
+check "no install/src add reality aliases in default flow" assert_no_grep 'add[[:space:]]+(reality|VLESS-REALITY|vless-reality)' install.sh src || true
+check "manual reality support remains" assert_grep 'VLESS-REALITY|reality' src/core.sh || true
+check "manual AnyTLS support remains" assert_grep 'AnyTLS|anytls' src/core.sh || true
+check "manual TUIC support remains" assert_grep 'TUIC|tuic' src/core.sh || true
+check "install and README no-auto-protocol text" assert_grep 'No proxy protocol has been created automatically|未自动创建任何代理协议|no proxy protocol is created automatically|不会自动创建任何代理协议' install.sh README.md || true
 check "workflow no-auto test before tar" workflow_check_before_tar 'tests/install-no-auto-reality\.sh' || true
 
-check "no direct wget TLS bypass by default" assert_no_rg 'wget[[:space:]].*--no-check-certificate' install.sh src || true
-rg -n -- '--no-check-certificate' install.sh src >>"$LOG" 2>&1 || true
-check "insecure opt-in exists" assert_rg 'insecure_download|SING_BOX_INSECURE_DOWNLOAD|--insecure-download' install.sh src || true
-check "HTTPS-only verifier exists" assert_rg 'verify_https_url|https://\*\)|拒绝非 HTTPS' install.sh src/download.sh || true
-check "SHA256 verifier exists" assert_rg 'verify_sha256|get_github_asset_digest|get_release_checksum_sha256' install.sh src/download.sh || true
-check "CA dependency exists" assert_rg 'ca-certificates' install.sh src/init.sh || true
-check "no mktemp -u in executable scripts" assert_no_rg 'mktemp[[:space:]]+-u' install.sh src || true
-rg -n 'mktemp[[:space:]]+-u' install.sh src tests >>"$LOG" 2>&1 || true
+check "no direct wget TLS bypass by default" assert_no_grep 'wget[[:space:]].*--no-check-certificate' install.sh src || true
+grep -RInE -- '--no-check-certificate' install.sh src >>"$LOG" 2>&1 || true
+check "insecure opt-in exists" assert_grep 'insecure_download|SING_BOX_INSECURE_DOWNLOAD|--insecure-download' install.sh src || true
+check "HTTPS-only verifier exists" assert_grep 'verify_https_url|https://\*\)|拒绝非 HTTPS' install.sh src/download.sh || true
+check "SHA256 verifier exists" assert_grep 'verify_sha256|get_github_asset_digest|get_release_checksum_sha256' install.sh src/download.sh || true
+check "CA dependency exists" assert_grep 'ca-certificates' install.sh src/init.sh || true
+check "no mktemp -u in executable scripts" assert_no_grep 'mktemp[[:space:]]+-u' install.sh src || true
+grep -RInE -- 'mktemp[[:space:]]+-u' install.sh src tests >>"$LOG" 2>&1 || true
 check "workflow supply-chain test before tar" workflow_check_before_tar 'tests/supply-chain-hardening\.sh' || true
 
-check "default stable pin exists" assert_rg 'DEFAULT_SING_BOX_STABLE_VERSION' src/version.sh install.sh src/download.sh || true
-check "latest must be explicit" assert_rg 'IS_USE_LATEST_VERSION|--latest|Using latest sing-box release' src/version.sh install.sh src/download.sh src/help.sh || true
-check "explicit core version support exists" assert_rg 'IS_USER_CORE_VERSION_SPECIFIED|--core-version|-v' src/version.sh install.sh src/core.sh src/help.sh || true
-check "latest and core-version conflict exists" assert_rg 'Cannot use --latest and --core-version at the same time' src/version.sh install.sh tests/version-pin.sh || true
+check "default stable pin exists" assert_grep 'DEFAULT_SING_BOX_STABLE_VERSION' src/version.sh install.sh src/download.sh || true
+check "latest must be explicit" assert_grep 'IS_USE_LATEST_VERSION|--latest|Using latest sing-box release' src/version.sh install.sh src/download.sh src/help.sh || true
+check "explicit core version support exists" assert_grep 'IS_USER_CORE_VERSION_SPECIFIED|--core-version|-v' src/version.sh install.sh src/core.sh src/help.sh || true
+check "latest and core-version conflict exists" assert_grep 'Cannot use --latest and --core-version at the same time' src/version.sh install.sh tests/version-pin.sh || true
 check "version policy function simulation" version_policy_simulation || true
 
-rg -n '\brm[[:space:]]+-(rf|fr|f|r)\b|cp[[:space:]]+-(rf|fr|f|a|af)\b|sed[[:space:]]+-i\b|mkdir[[:space:]]+-p\b|ln[[:space:]]+-s[f]?' install.sh src tests >"$DANGEROUS_RAW" 2>&1 || true
-rg -n '(^|[^#])\b(cat|printf|echo)\b.*>|>\s*\$|>\s*/|>>\s*\$|>>\s*/|\brm\b|\bcp\b|\bmv\b|\bsed -i\b|\bmkdir -p\b|\bln -sf\b|\bchmod\b' install.sh src tests .github/workflows/release.yml >"$DIRECT_WRITES_RAW" 2>&1 || true
+grep -RInE -- '\brm[[:space:]]+-(rf|fr|f|r)\b|cp[[:space:]]+-(rf|fr|f|a|af)\b|sed[[:space:]]+-i\b|mkdir[[:space:]]+-p\b|ln[[:space:]]+-s[f]?' install.sh src tests >"$DANGEROUS_RAW" 2>&1 || true
+grep -RInE -- '(^|[^#])\b(cat|printf|echo)\b.*>|>\s*\$|>\s*/|>>\s*\$|>>\s*/|\brm\b|\bcp\b|\bmv\b|\bsed -i\b|\bmkdir -p\b|\bln -sf\b|\bchmod\b' install.sh src tests .github/workflows/release.yml >"$DIRECT_WRITES_RAW" 2>&1 || true
 
 check "existing no-auto-reality test" bash tests/install-no-auto-reality.sh || true
 check "existing supply-chain hardening test" bash tests/supply-chain-hardening.sh || true
