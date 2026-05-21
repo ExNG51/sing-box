@@ -142,7 +142,7 @@ get_port() {
             err "自动获取可用端口失败次数达到 233 次, 请检查端口占用情况."
         fi
         tmp_port=$(shuf -i 445-65535 -n 1)
-        [[ ! $(is_test port_used $tmp_port) && $tmp_port != $port ]] && break
+        [[ ! $(is_any_port_used $tmp_port) && $tmp_port != $port ]] && break
     done
 }
 
@@ -206,7 +206,7 @@ is_test() {
         fi
         ;;
     port_used)
-        [[ $(is_port_used $2) && ! $is_cant_test_port ]] && echo ok
+        [[ $(is_any_port_used $2) && ! $is_cant_test_port ]] && echo ok
         ;;
     domain)
         echo $2 | grep -E -i '^\w(\w|\-|\.)?+\.\w+$'
@@ -221,20 +221,181 @@ is_test() {
 
 }
 
-is_port_used() {
-    if [[ $(type -P netstat) ]]; then
-        [[ ! $is_used_port ]] && is_used_port="$(netstat -tunlp | sed -n 's/.*:\([0-9]\+\).*/\1/p' | sort -nu)"
-        echo $is_used_port | sed 's/ /\n/g' | grep ^${1}$
-        return
-    fi
-    if [[ $(type -P ss) ]]; then
-        [[ ! $is_used_port ]] && is_used_port="$(ss -tunlp | sed -n 's/.*:\([0-9]\+\).*/\1/p' | sort -nu)"
-        echo $is_used_port | sed 's/ /\n/g' | grep ^${1}$
-        return
-    fi
+list_socket_table_ports() {
+    awk '
+        {
+            local_address = $4
+            if (local_address ~ /:[0-9]+$/) {
+                sub(/^.*:/, "", local_address)
+                print local_address
+            }
+        }
+    ' | sort -nu
+}
+
+warn_port_detection_unavailable() {
     is_cant_test_port=1
+    [[ $is_port_detection_warned ]] && return
+    is_port_detection_warned=1
     msg "$is_warn 无法检测端口是否可用."
     msg "请执行: $(_yellow "${cmd} update -y; ${cmd} install net-tools -y") 来修复此问题."
+}
+
+port_in_used_list() {
+    local port=$1
+    shift
+
+    printf '%s\n' "$@" | grep -Fx "$port"
+}
+
+# 中文注释：检测指定 TCP 监听端口是否被占用。
+is_tcp_port_used() {
+    local port=$1
+
+    if [[ ! ${is_tcp_used_port+x} ]]; then
+        if [[ $(type -P ss) ]]; then
+            is_tcp_used_port="$(ss -ltnH 2>/dev/null | list_socket_table_ports)"
+        elif [[ $(type -P netstat) ]]; then
+            is_tcp_used_port="$(netstat -ltn 2>/dev/null | list_socket_table_ports)"
+        else
+            warn_port_detection_unavailable
+            return 1
+        fi
+    fi
+
+    port_in_used_list "$port" $is_tcp_used_port
+}
+
+# 中文注释：检测指定 UDP 监听端口是否被占用。
+is_udp_port_used() {
+    local port=$1
+
+    if [[ ! ${is_udp_used_port+x} ]]; then
+        if [[ $(type -P ss) ]]; then
+            is_udp_used_port="$(ss -lunH 2>/dev/null | list_socket_table_ports)"
+        elif [[ $(type -P netstat) ]]; then
+            is_udp_used_port="$(netstat -lun 2>/dev/null | list_socket_table_ports)"
+        else
+            warn_port_detection_unavailable
+            return 1
+        fi
+    fi
+
+    port_in_used_list "$port" $is_udp_used_port
+}
+
+# 中文注释：保留旧语义，用于不确定协议或必须保守处理的端口检测。
+is_any_port_used() {
+    local port=$1
+
+    is_tcp_port_used "$port" && return 0
+    is_udp_port_used "$port"
+}
+
+is_port_used() {
+    is_any_port_used "$1"
+}
+
+# 中文注释：根据入站协议判断本地监听协议类型。
+get_inbound_listen_network() {
+    local protocol transport
+
+    protocol=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    transport=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+
+    case "$protocol" in
+    anytls)
+        printf '%s\n' "tcp"
+        ;;
+    tuic)
+        printf '%s\n' "udp"
+        ;;
+    hysteria2 | hy2 | hysteria*)
+        printf '%s\n' "udp"
+        ;;
+    trojan* | vless* | socks)
+        printf '%s\n' "tcp"
+        ;;
+    vmess*)
+        if [[ $protocol == *quic* || $transport == quic ]]; then
+            printf '%s\n' "any"
+        else
+            printf '%s\n' "tcp"
+        fi
+        ;;
+    shadowsocks | ss | direct)
+        printf '%s\n' "any"
+        ;;
+    *)
+        case "$transport" in
+        anytls | trojan | tcp | ws | h2 | http | httpupgrade | reality | socks)
+            printf '%s\n' "tcp"
+            ;;
+        tuic | hysteria2)
+            printf '%s\n' "udp"
+            ;;
+        *)
+            printf '%s\n' "any"
+            ;;
+        esac
+        ;;
+    esac
+}
+
+# 中文注释：根据协议类型检测端口是否已被对应监听协议占用。
+is_listen_port_used_for_protocol() {
+    local protocol=$1
+    local port=$2
+    local transport=$3
+    local listen_network
+
+    listen_network=$(get_inbound_listen_network "$protocol" "$transport")
+    case "$listen_network" in
+    tcp)
+        is_tcp_port_used "$port"
+        ;;
+    udp)
+        is_udp_port_used "$port"
+        ;;
+    *)
+        is_any_port_used "$port"
+        ;;
+    esac
+}
+
+get_current_listen_network() {
+    local protocol=${is_new_protocol:-$is_protocol}
+
+    [[ $protocol ]] || {
+        printf '%s\n' "any"
+        return
+    }
+    get_inbound_listen_network "$protocol" "$net"
+}
+
+is_current_listen_port_used() {
+    local port=$1
+    local protocol=${is_new_protocol:-$is_protocol}
+
+    if [[ $protocol ]]; then
+        is_listen_port_used_for_protocol "$protocol" "$port" "$net"
+    else
+        is_any_port_used "$port"
+    fi
+}
+
+listen_port_used_message() {
+    local port=$1
+    local listen_network=$2
+
+    case "$listen_network" in
+    tcp | udp)
+        printf '端口 %s/%s 已被占用，无法使用。' "$port" "$listen_network"
+        ;;
+    *)
+        printf '端口 %s/tcp 或 %s/udp 已被占用，无法使用。' "$port" "$port"
+        ;;
+    esac
 }
 
 # cleanup ask globals after one prompt.
@@ -499,8 +660,8 @@ ask() {
                     ui_error "请输入正确的端口，可选范围：1-65535。"
                     continue
                 }
-                if [[ $(is_test port_used $REPLY) && $is_ask_set != 'door_port' ]]; then
-                    ui_error "端口 ${REPLY} 已被占用，无法使用。"
+                if [[ $is_ask_set != 'door_port' && $(is_current_listen_port_used "$REPLY") ]]; then
+                    ui_error "$(listen_port_used_message "$REPLY" "$(get_current_listen_network)")"
                     continue
                 fi
             }
@@ -723,7 +884,7 @@ change() {
         [[ $host && ! $is_caddy || $is_no_auto_tls ]] && err "($is_config_file) 不支持更改端口, 因为没啥意义."
         if [[ $is_new_port && ! $is_auto ]]; then
             [[ ! $(is_test port $is_new_port) ]] && err "请输入正确的端口, 可选(1-65535)"
-            [[ $is_new_port != 443 && $(is_test port_used $is_new_port) ]] && err "无法使用 ($is_new_port) 端口"
+            [[ $(is_current_listen_port_used "$is_new_port") ]] && err "$(listen_port_used_message "$is_new_port" "$(get_current_listen_network)")"
         fi
         [[ $is_auto ]] && get_port && is_new_port=$tmp_port
         [[ ! $is_new_port ]] && ask string is_new_port "请输入新端口:"
@@ -1055,7 +1216,7 @@ assert_core_acme_capability() {
 }
 
 assert_anytls_acme_port_available() {
-    if [[ $(is_test port_used 443) ]]; then
+    if [[ $(is_tcp_port_used 443) ]]; then
         err "TCP 443 已被占用，AnyTLS ACME 域名模式无法继续。请先停止占用 443 的服务。"
     fi
 }
@@ -1136,6 +1297,25 @@ preflight_anytls_acme() {
     load firewall.sh
     ensure_anytls_acme_firewall_443
     warn_anytls_acme_external_firewall
+}
+
+preflight_udp_443_if_needed() {
+    local protocol
+
+    [[ $is_gen || $port != 443 ]] && return 0
+    protocol=$(printf '%s' "$is_new_protocol" | tr '[:upper:]' '[:lower:]')
+
+    case "$protocol" in
+    tuic | hysteria2)
+        ;;
+    *)
+        return 0
+        ;;
+    esac
+
+    load firewall.sh
+    ensure_udp_443_firewall
+    warn_udp_443_external_firewall
 }
 
 render_pending_server_config_json() {
@@ -1581,11 +1761,11 @@ add() {
             [[ ! $(is_test port ${is_use_port}) ]] && {
                 err "($is_use_port) 不是一个有效的端口. $is_err_tips"
             }
-            if [[ $(is_test port_used $is_use_port) && ! $is_gen ]]; then
+            if [[ $(is_listen_port_used_for_protocol "$is_new_protocol" "$is_use_port" "$net") && ! $is_gen ]]; then
                 if [[ ${is_new_protocol,,} == 'anytls' && $is_anytls_domain && ! $is_change ]]; then
                     :
                 else
-                    err "无法使用 ($is_use_port) 端口. $is_err_tips"
+                    err "$(listen_port_used_message "$is_use_port" "$(get_inbound_listen_network "$is_new_protocol" "$net")") $is_err_tips"
                 fi
             fi
             port=$is_use_port
@@ -1698,6 +1878,8 @@ add() {
         # set remote port
         [[ ! $door_port ]] && ask string door_port "请输入目标端口:"
     fi
+
+    preflight_udp_443_if_needed
 
     # Shadowsocks 2022
     if [[ $(grep 2022 <<<$ss_method) ]]; then
