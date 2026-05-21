@@ -1559,6 +1559,41 @@ run_with_backup_transaction() {
     return $status
 }
 
+# 中文注释：统一 TUIC 添加入口；主菜单和 legacy add tuic 都转入 structured TUIC 生命周期。
+route_tuic_add_to_structured() {
+    local protocol_arg=${1:-}
+    local legacy_port=${2:-auto}
+    local legacy_uuid=${3:-auto}
+    local route_status
+
+    [[ ${is_new_protocol,,} == 'tuic' && ! ${is_change:-} ]] || return 2
+
+    if type load >/dev/null 2>&1; then
+        load tuic.sh
+    else
+        # shellcheck source=/dev/null
+        . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tuic.sh"
+    fi
+
+    if [[ ${is_main_start:-} && ! $protocol_arg && ! ${is_gen:-} ]]; then
+        tuic_menu_add_config
+        route_status=$?
+        [[ $route_status -eq ${UI_RETURN_TO_MENU:-130} ]] && is_menu_back=1
+        return "$route_status"
+    fi
+
+    [[ $protocol_arg ]] || return 2
+
+    legacy_port=${legacy_port:-auto}
+    legacy_uuid=${legacy_uuid:-auto}
+    if [[ ! ${is_gen:-} ]]; then
+        warn "Legacy TUIC add compatibility entry: sing-box add tuic is kept for compatibility."
+        warn "Production use: sing-box tuic add --domain example.com --tls acme ..."
+        warn "Legacy TUIC add uses structured self-signed insecure compatibility mode; not recommended for production."
+    fi
+    tuic_add --port "$legacy_port" --uuid "$legacy_uuid" --password auto --insecure
+}
+
 # add a config
 add() {
     reset_port_detection_cache
@@ -1614,6 +1649,9 @@ add() {
     fi
 
     [[ ${is_new_protocol,,} == 'anytls' ]] && assert_anytls_core_version
+    route_tuic_add_to_structured "$@"
+    tuic_route_status=$?
+    [[ $tuic_route_status -ne 2 ]] && return "$tuic_route_status"
 
     case ${is_new_protocol,,} in
     *-tls)
@@ -1960,7 +1998,17 @@ get() {
         tuic*)
             net=tuic
             is_protocol=$net
-            [[ ! $password ]] && password=$uuid
+            if [[ ! $password ]]; then
+                if ! type tuic_generate_password >/dev/null 2>&1; then
+                    if type load >/dev/null 2>&1; then
+                        load tuic.sh
+                    else
+                        # shellcheck source=/dev/null
+                        . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tuic.sh"
+                    fi
+                fi
+                password=$(tuic_generate_password)
+            fi
             is_users="users:[{uuid:\"$uuid\",password:\"$password\"}]"
             json_str="$is_users,congestion_control:\"bbr\",$is_tls_json"
             ;;

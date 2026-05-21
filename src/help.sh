@@ -78,6 +78,10 @@ show_help() {
         msg "Alias: 脚本通过带标记的 alias block 管理 ${is_shell_profile:-/root/.bashrc}，修改前会进入备份事务，rollback 可恢复。"
         msg "Alias: 不会删除 alias block 外的用户自定义内容。"
         msg "Version policy: sing-box core 默认使用 pinned stable; 只有显式 --latest 才追 upstream latest。"
+        msg "TUIC 推荐: sing-box tuic add --domain example.com --tls acme --port 443 --uuid auto --password auto"
+        msg "TUIC 推荐: sing-box tuic add --domain example.com --cert-file /path/fullchain.pem --key-file /path/key.pem"
+        msg "TUIC 测试/兼容: sing-box tuic add --insecure --port 10443 --uuid auto --password auto"
+        msg "TUIC 兼容: sing-box add tuic [port] [uuid]  # legacy compatibility entry; 不推荐生产使用"
         msg "谨慎使用 del, ddel; 删除前会写入备份事务，但仍应确认目标配置。"
         msg "反馈问题) $(msg_ul https://github.com/${is_sh_repo}/issues) "
         ;;
