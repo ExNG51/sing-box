@@ -167,8 +167,8 @@ assert_match '^info\(\)' "$REPO_ROOT/src/core.sh" \
 assert_match '^url_qr\(\)' "$REPO_ROOT/src/core.sh" \
     'url/qr output path must remain present'
 
-assert_match '^is_sh_ver=v1\.30$' "$REPO_ROOT/sing-box.sh" \
-    'sing-box.sh must keep the manager version at v1.30'
+assert_match '^is_sh_ver=v1\.31$' "$REPO_ROOT/sing-box.sh" \
+    'sing-box.sh must keep the manager version at v1.31'
 
 default_output="$TMP_DIR/default.out"
 if ! run_with_timeout 3 bash -c '
