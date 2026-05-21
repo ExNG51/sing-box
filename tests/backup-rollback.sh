@@ -375,11 +375,11 @@ if rollback_latest_backup --yes >/tmp/backup-rollback-bad-manifest.out 2>&1; the
     fail 'rollback must refuse when manifest is damaged'
 fi
 
-assert_file_contains "$REPO_ROOT/.github/workflows/release.yml" "run: bash tests/backup-rollback.sh" 'release workflow must run backup rollback checks'
+assert_file_contains "$REPO_ROOT/.github/workflows/release.yml" "for file in tests/*.sh" 'release workflow must run full local test matrix'
 awk '
-    /run: bash tests\/backup-rollback\.sh/ { check_line = NR }
+    /for file in tests\/\*\.sh/ { check_line = NR }
     /- name: tar/ { tar_line = NR }
     END { exit !(check_line && tar_line && check_line < tar_line) }
-' "$REPO_ROOT/.github/workflows/release.yml" || fail 'release workflow backup rollback checks must run before the tar step'
+' "$REPO_ROOT/.github/workflows/release.yml" || fail 'release workflow local test matrix must run before the tar step'
 
 printf '[PASS] backup and rollback checks\n'

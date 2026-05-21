@@ -22,6 +22,19 @@ jobs:
       #   run: |
       #     echo not found new version.
       #     exit 1
+      - name: bash syntax checks
+        run: |
+          bash -n sing-box.sh
+          bash -n install.sh
+          bash -n src/init.sh
+          bash -n src/core.sh
+          bash -n src/backup.sh
+          bash -n src/firewall.sh
+          bash -n src/cert.sh
+          bash -n src/tuic.sh
+          bash -n src/tuic_port_hopping.sh
+          bash -n src/help.sh
+          bash -n src/version.sh
       - name: hardening checks
         run: bash tests/supply-chain-hardening.sh
       - name: backup rollback checks
@@ -42,6 +55,22 @@ jobs:
         run: bash tests/install-command-permissions.sh
       - name: release package scope checks
         run: bash tests/release-package-scope.sh
+      - name: local test matrix
+        run: |
+          for file in tests/*.sh; do
+            echo ">>> $file"
+            bash "$file"
+          done
+      - name: audit test matrix
+        run: |
+          if compgen -G "tests/audit/*.sh" >/dev/null; then
+            for file in tests/audit/*.sh; do
+              echo ">>> $file"
+              bash "$file"
+            done
+          else
+            echo "No audit tests found."
+          fi
       - name: tar
         run: tar zcvf code.tar.gz LICENSE README.md install.sh sing-box.sh src
       - name: release
