@@ -1,0 +1,26 @@
+{
+  "inbounds": [
+    {
+      "tag": "tuic-file-cert",
+      "type": "tuic",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [
+        {
+          "uuid": "11111111-1111-1111-1111-111111111111",
+          "password": "test-password"
+        }
+      ],
+      "congestion_control": "bbr",
+      "tls": {
+        "enabled": true,
+        "server_name": "example.com",
+        "alpn": [
+          "h3"
+        ],
+        "certificate_path": "/etc/sing-box/cert/example.com.cer",
+        "key_path": "/etc/sing-box/cert/example.com.key"
+      }
+    }
+  ]
+}

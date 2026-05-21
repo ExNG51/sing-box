@@ -1,0 +1,29 @@
+{
+  "inbounds": [
+    {
+      "tag": "anytls-provider-acme",
+      "type": "anytls",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [
+        {
+          "password": "test-password"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "certificate_provider": "acme-example.com"
+      }
+    }
+  ],
+  "certificate_providers": [
+    {
+      "type": "acme",
+      "tag": "acme-example.com",
+      "domain": [
+        "example.com"
+      ],
+      "data_directory": "/etc/sing-box/acme"
+    }
+  ]
+}

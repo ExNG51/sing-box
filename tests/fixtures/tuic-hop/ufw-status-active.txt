@@ -1,0 +1,8 @@
+Status: active
+
+To                         Action      From
+--                         ------      ----
+443/udp                    ALLOW       Anywhere
+10443:10542/udp            ALLOW       Anywhere
+443/udp (v6)               ALLOW       Anywhere (v6)
+10443:10542/udp (v6)       ALLOW       Anywhere (v6)

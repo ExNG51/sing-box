@@ -1,0 +1,4 @@
+tuic-port-hopping@443.service - Apply TUIC UDP port-hopping redirect rules for port 443
+     Loaded: loaded (/etc/systemd/system/tuic-port-hopping@.service; enabled; preset: enabled)
+     Active: active (exited) since Thu 2026-05-21 12:00:00 UTC; 1min ago
+    Process: 233 ExecStart=/usr/local/sbin/apply-tuic-port-hopping.sh 443 (code=exited, status=0/SUCCESS)

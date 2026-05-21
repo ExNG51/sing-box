@@ -1,0 +1,25 @@
+{
+  "inbounds": [
+    {
+      "tag": "tuic-bbr-default",
+      "type": "tuic",
+      "listen": "::",
+      "listen_port": 10443,
+      "users": [
+        {
+          "uuid": "11111111-1111-1111-1111-111111111111",
+          "password": "test-password"
+        }
+      ],
+      "congestion_control": "bbr",
+      "tls": {
+        "enabled": true,
+        "alpn": [
+          "h3"
+        ],
+        "certificate_path": "/etc/sing-box/bin/tls.cer",
+        "key_path": "/etc/sing-box/bin/tls.key"
+      }
+    }
+  ]
+}

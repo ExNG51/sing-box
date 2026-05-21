@@ -1,0 +1,35 @@
+{
+  "inbounds": [
+    {
+      "tag": "tuic-domain-provider",
+      "type": "tuic",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [
+        {
+          "uuid": "11111111-1111-1111-1111-111111111111",
+          "password": "test-password"
+        }
+      ],
+      "congestion_control": "bbr",
+      "tls": {
+        "enabled": true,
+        "server_name": "example.com",
+        "alpn": [
+          "h3"
+        ],
+        "certificate_provider": "acme-example.com"
+      }
+    }
+  ],
+  "certificate_providers": [
+    {
+      "type": "acme",
+      "tag": "acme-example.com",
+      "domain": [
+        "example.com"
+      ],
+      "data_directory": "/etc/sing-box/acme"
+    }
+  ]
+}

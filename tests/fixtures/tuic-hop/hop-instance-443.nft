@@ -1,0 +1,7 @@
+table inet tuic_hopping_443 {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+
+        udp dport 10443-10542 redirect to :443
+    }
+}

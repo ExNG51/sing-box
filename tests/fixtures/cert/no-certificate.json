@@ -1,0 +1,15 @@
+{
+  "inbounds": [
+    {
+      "tag": "anytls-no-certificate",
+      "type": "anytls",
+      "listen": "::",
+      "listen_port": 8443,
+      "users": [
+        {
+          "password": "test-password"
+        }
+      ]
+    }
+  ]
+}
