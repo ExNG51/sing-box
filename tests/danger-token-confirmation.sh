@@ -26,10 +26,27 @@ assert_not_contains() {
     fi
 }
 
+assert_match() {
+    local pattern=$1
+    local file=$2
+    local description=$3
+
+    if command -v rg >/dev/null 2>&1; then
+        rg -n "$pattern" "$file" >/dev/null || fail "$description"
+    else
+        grep -En "$pattern" "$file" >/dev/null || fail "$description"
+    fi
+}
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_ROOT="$(mktemp -d)"
 LOG="$TEST_ROOT/actions.log"
 trap 'rm -rf "$TEST_ROOT"' EXIT
+
+for helper in ui_section ui_warn ui_kv ui_blank ui_confirm_token; do
+    assert_match "^${helper}\\(\\)" "$REPO_ROOT/src/init.sh" \
+        "src/init.sh must define $helper used by confirm_menu_danger_token"
+done
 
 run_core_mock() {
     local scenario=$1

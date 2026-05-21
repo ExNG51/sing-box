@@ -64,6 +64,14 @@ ui_blank() {
     printf '\n'
 }
 
+# 中文注释：输出小节标题，用于高风险确认或状态分区。
+ui_section() {
+    local title=$1
+
+    ui_blank
+    ui_print "${UI_STYLE_BOLD}${UI_COLOR_BLUE}>>> $title${UI_COLOR_RESET}"
+}
+
 ui_info() {
     printf '%b\n' "${UI_STYLE_BOLD}${UI_COLOR_CYAN}[i]${UI_COLOR_RESET} $*"
 }
