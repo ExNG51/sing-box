@@ -105,6 +105,8 @@ for fn in \
     tuic_hop_render_nft_rule \
     tuic_hop_render_systemd_template \
     tuic_hop_show_client_hint \
+    tuic_hop_precheck_remove_paths \
+    tuic_hop_migrate_instance \
     tuic_hop_delete_instance
 do
     assert_function "$fn"
@@ -159,6 +161,56 @@ finalize_backup_transaction
 [[ ! -e "$TUIC_HOP_INSTANCE_DIR/443.env" ]] || fail "delete should remove instance env"
 [[ ! -e "$(tuic_hop_get_nft_rule_file 443)" ]] || fail "delete should remove nft rule file"
 pass "delete instance removes only per-instance managed files"
+
+order_log="$TEST_ROOT/delete-order.log"
+mock_bin="$TEST_ROOT/mock-bin"
+mkdir -p "$mock_bin"
+cat >"$mock_bin/systemctl" <<'MOCK_SYSTEMCTL'
+#!/usr/bin/env bash
+printf 'systemctl %s\n' "$*" >>"$ACTION_LOG"
+exit 0
+MOCK_SYSTEMCTL
+cat >"$mock_bin/nft" <<'MOCK_NFT'
+#!/usr/bin/env bash
+printf 'nft %s\n' "$*" >>"$ACTION_LOG"
+exit 0
+MOCK_NFT
+chmod +x "$mock_bin/systemctl" "$mock_bin/nft"
+(
+    export PATH="$mock_bin:$PATH"
+    export ACTION_LOG="$order_log"
+    unset TUIC_HOP_SKIP_SYSTEMD TUIC_HOP_SKIP_NFT
+    : >"$ACTION_LOG"
+    assert_safe_remove_path() {
+        printf 'precheck %s\n' "$1" >>"$ACTION_LOG"
+        return 0
+    }
+    safe_remove_path() {
+        printf 'safe_remove %s\n' "$*" >>"$ACTION_LOG"
+        return 0
+    }
+    tuic_hop_render_instance_env 2443 12443 12542 30 >"$TUIC_HOP_INSTANCE_DIR/2443.env"
+    printf '%s\n' "$nft_rule" >"$(tuic_hop_get_nft_rule_file 2443)"
+    tuic_hop_delete_instance 2443 --yes >/tmp/tuic-hop-delete-order.out
+) || fail "delete order test should run with mocked system tools"
+precheck_line=$(grep -n '^precheck ' "$order_log" | head -n 1 | cut -d: -f1)
+systemctl_line=$(grep -n '^systemctl disable --now tuic-port-hopping@2443\.service' "$order_log" | head -n 1 | cut -d: -f1)
+nft_delete_line=$(grep -n '^nft delete table inet tuic_hopping_2443' "$order_log" | head -n 1 | cut -d: -f1)
+safe_remove_line=$(grep -n '^safe_remove ' "$order_log" | head -n 1 | cut -d: -f1)
+[[ $precheck_line && $systemctl_line && $nft_delete_line && $safe_remove_line ]] || fail "delete order log should include precheck, systemctl, nft delete, and safe remove"
+[[ $precheck_line -lt $systemctl_line && $precheck_line -lt $nft_delete_line ]] || fail "safe remove precheck must run before systemd/nft mutation"
+[[ $systemctl_line -lt $safe_remove_line && $nft_delete_line -lt $safe_remove_line ]] || fail "safe remove should run after systemd/nft mutation"
+pass "delete instance prechecks safe remove paths before systemd/nft mutation"
+
+migrate_body=$(sed -n '/^tuic_hop_migrate_instance()/,/^}/p' "$REPO_ROOT/src/tuic_port_hopping.sh")
+assert_contains "$migrate_body" 'tuic_hop_create_or_update_instance "$new_port"' \
+    "migrate implementation should create the new instance"
+assert_contains "$migrate_body" 'tuic_hop_delete_instance "$old_port" --yes' \
+    "migrate implementation should delete the old instance after new validation"
+create_line=$(grep -nF 'tuic_hop_create_or_update_instance "$new_port"' <<<"$migrate_body" | head -n 1 | cut -d: -f1)
+delete_line=$(grep -nF 'tuic_hop_delete_instance "$old_port" --yes' <<<"$migrate_body" | head -n 1 | cut -d: -f1)
+[[ $create_line && $delete_line && $create_line -lt $delete_line ]] || fail "migrate implementation must create the new instance before deleting the old instance"
+pass "migrate implementation creates new instance before deleting old instance"
 
 if safe_remove_path /etc >/tmp/tuic-hop-safe-remove.out 2>&1; then
     fail "safe_remove_path must reject broad /etc removal"

@@ -175,8 +175,26 @@ assert_match 'tuic_show_hop_summary' "$REPO_ROOT/src/tuic.sh" \
     "tuic_show_summary should display Port-Hopping status"
 assert_match 'tuic_prepare_hop_change_action' "$REPO_ROOT/src/tuic.sh" \
     "tuic change port should detect associated Port-Hopping instances"
+assert_match 'tuic_hop_migrate_instance "\$old_port" "\$new_port"' "$REPO_ROOT/src/tuic.sh" \
+    "tuic change --hop-action migrate should use the hardened hop migration helper"
 assert_match 'tuic_handle_hop_before_delete' "$REPO_ROOT/src/tuic.sh" \
     "tuic delete should detect associated Port-Hopping instances"
+assert_not_match 'ui_confirm_token "是否启用 TUIC Port-Hopping' "$REPO_ROOT/src/tuic.sh" \
+    "menu add flow should not bind the low-risk enable choice directly to token confirmation"
+assert_match 'ui_confirm_token "确认写入 TUIC Port-Hopping 系统对象？" "APPLY-HOP"' "$REPO_ROOT/src/tuic.sh" \
+    "menu add flow should require APPLY-HOP only for actual system writes"
+assert_not_match '菜单添加当前提供最小 insecure 向导' "$REPO_ROOT/src/tuic.sh" \
+    "TUIC add menu should no longer be insecure-only"
+assert_match 'Domain \+ ACME 自动证书' "$REPO_ROOT/src/tuic.sh" \
+    "TUIC add menu should offer Domain + ACME"
+assert_match 'Domain \+ file-cert 文件证书' "$REPO_ROOT/src/tuic.sh" \
+    "TUIC add menu should offer Domain + file-cert"
+assert_match 'Self-signed insecure 自签模式' "$REPO_ROOT/src/tuic.sh" \
+    "TUIC add menu should offer self-signed insecure"
+assert_match '\-\-hop[[:space:]]*\|[[:space:]]*\-\-port-hopping\)' "$REPO_ROOT/src/tuic.sh" \
+    "TUIC CLI add should still accept --hop / --port-hopping"
+assert_match 'migrate \| delete \| keep' "$REPO_ROOT/src/tuic.sh" \
+    "TUIC CLI change should still accept --hop-action migrate|delete|keep"
 assert_not_match 'nft flush ruleset|systemctl disable --now tuic-port-hopping@\*\.service|ufw reset' "$REPO_ROOT/src/tuic.sh" \
     "TUIC lifecycle wiring should not use broad Port-Hopping system operations"
 pass "TUIC namespace and Task D lifecycle integration are locatable"
