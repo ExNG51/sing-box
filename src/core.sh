@@ -1088,6 +1088,27 @@ del() {
 }
 
 # uninstall
+uninstall_warn_tuic_hop_instances() {
+    local count port cfg start end service
+
+    type load >/dev/null 2>&1 || return 0
+    load tuic_port_hopping.sh
+    count=$(tuic_hop_count_instances 2>/dev/null || printf '0\n')
+    [[ ${count:-0} -gt 0 ]] || return 0
+    ui_blank
+    ui_warn "发现 TUIC Port-Hopping 实例，卸载 sing-box 前请先清理。"
+    while IFS= read -r port; do
+        [[ $port ]] || continue
+        cfg=$(tuic_hop_get_config_file "$port")
+        start=$(tuic_hop_read_env_value "$cfg" RANGE_START 2>/dev/null || true)
+        end=$(tuic_hop_read_env_value "$cfg" RANGE_END 2>/dev/null || true)
+        service=$(tuic_hop_get_service_name "$port")
+        ui_print "- ${port}: ${start}-${end}/udp, ${service}"
+    done < <(tuic_hop_list_instances)
+    ui_print "请先运行: $is_core tuic hop delete-all --yes"
+    ui_blank
+}
+
 uninstall() {
     local path
     if [[ $is_caddy ]]; then
@@ -1100,6 +1121,7 @@ uninstall() {
             ask string y "是否卸载 ${is_core_name}? [y]:"
         fi
     fi
+    uninstall_warn_tuic_hop_instances
     confirm_menu_uninstall || return 1
     manage stop &>/dev/null
     manage disable &>/dev/null

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# 中文注释：TUIC 专项生命周期模块；只管理 TUIC sing-box 配置，不集成 Port-Hopping 生产对象。
+# 中文注释：TUIC 专项生命周期模块；Port-Hopping 作为可选增强由独立模块管理。
 
-TUIC_TASK_D_NOTICE="Port-Hopping lifecycle integration is reserved for Task D."
+TUIC_HOP_OPTIONAL_NOTICE="Port-Hopping 未启用；可运行 sing-box tuic hop enable <config|port> --range auto --interval 30。"
 
 # 中文注释：清理 TUIC 模块全局状态，避免多次 CLI / 菜单调用互相污染。
 tuic_reset_state() {
@@ -11,6 +11,9 @@ tuic_reset_state() {
     unset tuic_provider_tag tuic_provider_reused tuic_new_provider tuic_acme_data_dir
     unset tuic_yes tuic_confirm_token tuic_dry_run tuic_tls_changed tuic_password_auto tuic_uuid_auto
     unset tuic_cert_file_arg tuic_key_file_arg
+    unset tuic_hop_enable tuic_hop_range tuic_hop_interval tuic_allow_missing_listener
+    unset tuic_hop_action tuic_with_hop tuic_force_keep_hop tuic_hop_change_action
+    unset tuic_hop_old_range_start tuic_hop_old_range_end tuic_hop_old_interval
     unset tuic_skip_check tuic_skip_restart tuic_new_json
 }
 
@@ -44,6 +47,17 @@ tuic_load_cert() {
     fi
     # shellcheck source=/dev/null
     . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cert.sh"
+}
+
+# 中文注释：按需加载 TUIC Port-Hopping 模块；只在 hop 子命令或生命周期联动时加载。
+tuic_load_hop() {
+    type tuic_hop_main >/dev/null 2>&1 && return 0
+    if type load >/dev/null 2>&1; then
+        load tuic_port_hopping.sh
+        return 0
+    fi
+    # shellcheck source=/dev/null
+    . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tuic_port_hopping.sh"
 }
 
 # 中文注释：生成 UUID，优先复用系统能力，避免依赖 sing-box core。
@@ -190,6 +204,37 @@ tuic_parse_add_args() {
             ;;
         --dry-run)
             tuic_dry_run=1
+            shift
+            ;;
+        --hop | --port-hopping)
+            tuic_hop_enable=1
+            shift
+            ;;
+        --hop-range)
+            [[ $2 ]] || return 1
+            tuic_hop_range=$2
+            shift 2
+            ;;
+        --hop-interval)
+            [[ $2 ]] || return 1
+            tuic_hop_interval=$2
+            shift 2
+            ;;
+        --allow-missing-listener)
+            tuic_allow_missing_listener=1
+            shift
+            ;;
+        --hop-action)
+            [[ $2 ]] || return 1
+            tuic_hop_action=$2
+            shift 2
+            ;;
+        --with-hop)
+            tuic_with_hop=1
+            shift
+            ;;
+        --force-keep-hop)
+            tuic_force_keep_hop=1
             shift
             ;;
         *)
@@ -589,6 +634,35 @@ tuic_mask_secret() {
     printf '****\n'
 }
 
+tuic_show_hop_summary() {
+    local cfg range_start range_end table service systemd_state nft_state
+
+    tuic_load_hop || {
+        ui_kv "Port-Hopping" "unknown"
+        return 0
+    }
+    if tuic_hop_has_instance "$tuic_port"; then
+        cfg=$(tuic_hop_get_config_file "$tuic_port")
+        range_start=$(tuic_hop_read_env_value "$cfg" RANGE_START 2>/dev/null || true)
+        range_end=$(tuic_hop_read_env_value "$cfg" RANGE_END 2>/dev/null || true)
+        table=$(tuic_hop_get_nft_table_name "$tuic_port")
+        service=$(tuic_hop_get_service_name "$tuic_port")
+        systemd_state=inactive
+        tuic_hop_systemd_is_active "$service" && systemd_state=active
+        [[ $systemd_state == inactive ]] && tuic_hop_systemd_is_enabled "$service" && systemd_state=enabled
+        nft_state=missing
+        tuic_hop_nft_table_exists "$table" && nft_state="table exists"
+        ui_kv "Port-Hopping" "enabled"
+        ui_kv "跳跃范围" "${range_start}-${range_end}/udp"
+        ui_kv "systemd" "$systemd_state"
+        ui_kv "nftables" "$nft_state"
+    elif tuic_hop_detect_residual_for_port "$tuic_port"; then
+        ui_kv "Port-Hopping" "residual"
+    else
+        ui_kv "Port-Hopping" "disabled"
+    fi
+}
+
 # 中文注释：输出 TUIC 摘要；默认不裸露 UUID/password。
 tuic_show_summary() {
     local source address_mode
@@ -613,7 +687,7 @@ tuic_show_summary() {
     ui_kv "UUID" "$(tuic_mask_secret "$tuic_uuid")"
     ui_kv "Password" "$(tuic_mask_secret "$tuic_password")"
     ui_kv "拥塞控制" "$tuic_cc"
-    ui_kv "Port-Hopping" "not integrated in Task C"
+    tuic_show_hop_summary
 }
 
 # 中文注释：敏感 URL 输出提醒；提醒走 stderr，URL 主体保持 stdout。
@@ -694,6 +768,147 @@ tuic_commit_upsert() {
     [[ $should_finalize == true || ${IS_BACKUP_ACTIVE:-} == true ]] && finalize_backup_transaction
 }
 
+tuic_enable_hop_for_current_config() {
+    local range interval allow_missing
+
+    [[ ${is_gen:-} || ${tuic_dry_run:-} ]] && return 0
+    tuic_load_hop || return 1
+    range=${tuic_hop_range:-auto}
+    interval=${tuic_hop_interval:-30}
+    allow_missing=
+    [[ $tuic_allow_missing_listener || $tuic_yes ]] && allow_missing=1
+    tuic_hop_create_or_update_instance "$tuic_port" "$range" "$interval" "$allow_missing"
+}
+
+tuic_maybe_enable_hop_after_add() {
+    [[ ${is_gen:-} || ${tuic_dry_run:-} ]] && return 0
+    if [[ $tuic_hop_enable ]]; then
+        tuic_enable_hop_for_current_config
+        return $?
+    fi
+    if [[ ${is_main_start:-} ]]; then
+        ui_blank
+        ui_confirm_token "是否启用 TUIC Port-Hopping？" "APPLY-HOP" && {
+            tuic_hop_enable=1
+            tuic_enable_hop_for_current_config
+            return $?
+        }
+        ui_warn "已跳过 TUIC Port-Hopping。"
+        return 0
+    fi
+    ui_dim "$TUIC_HOP_OPTIONAL_NOTICE"
+}
+
+tuic_prepare_hop_change_action() {
+    local old_port=$1 new_port=$2 cfg choice
+
+    tuic_hop_change_action=
+    [[ $old_port == "$new_port" ]] && return 0
+    tuic_load_hop || return 1
+    tuic_hop_has_instance "$old_port" || return 0
+
+    case "${tuic_hop_action:-}" in
+    migrate | delete | keep)
+        tuic_hop_change_action=$tuic_hop_action
+        ;;
+    "")
+        if [[ ${is_main_start:-} ]]; then
+            ui_blank
+            ui_print ">>> TUIC Port-Hopping 关联实例"
+            ui_kv "旧真实端口" "${old_port}/udp"
+            ui_kv "新真实端口" "${new_port}/udp"
+            ui_menu_item 1 "迁移 hop 到新端口"
+            ui_menu_item 2 "删除旧 hop"
+            ui_menu_item 3 "保留旧 hop 并报告残留风险"
+            ui_menu_item 0 "返回"
+            ui_read_raw choice "请输入选项编号（0 返回）： " || return 1
+            case "$choice" in
+            1) tuic_hop_change_action=migrate ;;
+            2) tuic_hop_change_action=delete ;;
+            3) tuic_hop_change_action=keep ;;
+            0) return 1 ;;
+            *) tuic_fail "无效选项。"; return 1 ;;
+            esac
+        else
+            tuic_fail "旧端口 ${old_port}/udp 存在 TUIC Port-Hopping 实例；请指定 --hop-action migrate|delete|keep。"
+            return 1
+        fi
+        ;;
+    *)
+        tuic_fail "--hop-action 仅支持 migrate / delete / keep。"
+        return 1
+        ;;
+    esac
+
+    cfg=$(tuic_hop_get_config_file "$old_port")
+    tuic_hop_old_range_start=$(tuic_hop_read_env_value "$cfg" RANGE_START 2>/dev/null || true)
+    tuic_hop_old_range_end=$(tuic_hop_read_env_value "$cfg" RANGE_END 2>/dev/null || true)
+    tuic_hop_old_interval=$(tuic_hop_read_env_value "$cfg" HOP_INTERVAL 2>/dev/null || printf '30\n')
+}
+
+tuic_apply_hop_change_action() {
+    local old_port=$1 new_port=$2 range allow_missing
+
+    [[ $tuic_hop_change_action ]] || return 0
+    tuic_load_hop || return 1
+    case "$tuic_hop_change_action" in
+    delete)
+        tuic_hop_delete_instance "$old_port" --yes
+        ;;
+    keep)
+        tuic_hop_warn "旧 TUIC Port-Hopping 实例已保留，可能成为残留风险。"
+        tuic_hop_report_residuals "$old_port"
+        ;;
+    migrate)
+        range="${tuic_hop_old_range_start}-${tuic_hop_old_range_end}"
+        if [[ ! $tuic_hop_old_range_start || ! $tuic_hop_old_range_end ]] ||
+            tuic_hop_is_port_in_range "$new_port" "$tuic_hop_old_range_start" "$tuic_hop_old_range_end"; then
+            range=auto
+        fi
+        allow_missing=
+        [[ $tuic_allow_missing_listener || $tuic_yes ]] && allow_missing=1
+        tuic_hop_delete_instance "$old_port" --yes || return 1
+        tuic_hop_create_or_update_instance "$new_port" "$range" "${tuic_hop_old_interval:-30}" "$allow_missing"
+        ;;
+    esac
+}
+
+tuic_handle_hop_before_delete() {
+    local choice
+
+    tuic_load_hop || return 1
+    tuic_hop_has_instance "$tuic_port" || return 0
+    if [[ $tuic_with_hop || $tuic_hop_action == delete ]]; then
+        tuic_hop_delete_instance "$tuic_port" --yes
+        return $?
+    fi
+    if [[ $tuic_force_keep_hop || $tuic_hop_action == keep ]]; then
+        tuic_hop_warn "TUIC 配置将删除，但关联 Port-Hopping 实例会保留。"
+        tuic_hop_report_residuals "$tuic_port"
+        return 0
+    fi
+    if [[ ${is_main_start:-} ]]; then
+        ui_blank
+        ui_print ">>> 发现关联 TUIC Port-Hopping 实例"
+        ui_kv "真实端口" "${tuic_port}/udp"
+        ui_menu_item 1 "一并删除 hop"
+        ui_menu_item 2 "保留 hop 并报告残留风险"
+        ui_menu_item 0 "返回"
+        ui_read_raw choice "请输入选项编号（0 返回）： " || return 1
+        case "$choice" in
+        1) tuic_hop_delete_instance "$tuic_port" --yes ;;
+        2)
+            ui_confirm_token "确认保留 Port-Hopping 残留？" "KEEP-HOP" || return 1
+            tuic_hop_report_residuals "$tuic_port"
+            ;;
+        0) return 1 ;;
+        *) tuic_fail "无效选项。"; return 1 ;;
+        esac
+        return $?
+    fi
+    tuic_fail "该 TUIC 存在关联 Port-Hopping 实例；请指定 --with-hop 或 --hop-action delete，或使用 --force-keep-hop。"
+}
+
 # 中文注释：添加 TUIC 配置。
 tuic_add() {
     tuic_reset_state
@@ -722,6 +937,7 @@ tuic_add() {
     tuic_sensitive_warning
     tuic_render_client_url "$tuic_new_json"
     [[ $tuic_tls_mode == self-signed-insecure ]] && tuic_warn "当前 TUIC 使用自签 insecure 模式，仅建议测试或兼容场景使用。"
+    tuic_maybe_enable_hop_after_add
 }
 
 # 中文注释：显示单个或全部 TUIC 配置摘要。
@@ -763,7 +979,7 @@ tuic_url() {
     tuic_render_client_url "$json"
 }
 
-# 中文注释：修改 TUIC 配置；只改当前配置文件，不触碰 Port-Hopping 生产对象。
+# 中文注释：修改 TUIC 配置；端口变化时显式处理关联 Port-Hopping 实例。
 tuic_change() {
     local target=$1
     local current_port
@@ -778,6 +994,7 @@ tuic_change() {
     current_port=$tuic_port
     tuic_parse_change_args "$@" || return 1
     tuic_prepare_change_state || return 1
+    tuic_prepare_hop_change_action "$current_port" "$tuic_port" || return 1
     tuic_validate_port_available "$tuic_port" "$current_port" || {
         tuic_fail "UDP $tuic_port 已被占用，无法修改 TUIC。"
         return 1
@@ -787,10 +1004,9 @@ tuic_change() {
 
     tuic_new_json=$(tuic_render_inbound_json) || return 1
     tuic_commit_upsert change-tuic || return 1
+    tuic_apply_hop_change_action "$current_port" "$tuic_port" || return 1
     ui_blank
     tuic_show_summary
-    ui_blank
-    ui_dim "$TUIC_TASK_D_NOTICE"
 }
 
 # 中文注释：删除前确认；CLI 必须显式 --yes 或 --confirm DELETE。
@@ -799,7 +1015,7 @@ tuic_confirm_delete() {
     if [[ ${is_main_start:-} ]]; then
         ui_blank
         ui_print ">>> 删除 TUIC 配置确认"
-        ui_warn "此操作只删除 TUIC sing-box 配置，不删除 Port-Hopping 对象。"
+        ui_warn "此操作将删除 TUIC sing-box 配置；如有关联 Port-Hopping 实例，会先要求处理。"
         ui_kv "配置文件" "$tuic_config_file"
         ui_blank
         ui_confirm_token "确认删除该 TUIC 配置？" "DELETE" || {
@@ -846,7 +1062,7 @@ tuic_check_after_delete() {
     rm -f "$tmp_config_json" "$check_log"
 }
 
-# 中文注释：删除 TUIC 配置，不触碰 Port-Hopping 生产对象。
+# 中文注释：删除 TUIC 配置；关联 Port-Hopping 实例必须显式删除或保留。
 tuic_delete() {
     local target=$1
     local should_finalize=false
@@ -860,6 +1076,7 @@ tuic_delete() {
     tuic_read_config "$target" || return 1
     tuic_parse_add_args "$@" || return 1
     tuic_confirm_delete || return 1
+    tuic_handle_hop_before_delete || return 1
     tuic_check_after_delete || {
         tuic_fail "删除后的 sing-box 配置检查失败，未删除 TUIC 配置。"
         return 1
@@ -886,8 +1103,7 @@ tuic_delete() {
     [[ $should_finalize == true || ${IS_BACKUP_ACTIVE:-} == true ]] && finalize_backup_transaction
     ui_blank
     ui_kv "已删除" "$tuic_config_file"
-    ui_dim "$TUIC_TASK_D_NOTICE"
-    ui_dim "如果该 TUIC 曾手动配置 Port-Hopping，请在 Task D 集成前人工确认 nftables/systemd/UFW 残留。"
+    tuic_load_hop && tuic_hop_report_residuals "$tuic_port" || true
 }
 
 # 中文注释：迁移旧 TUIC 配置到 domain cert 或独立 password；不做批量迁移。
@@ -913,29 +1129,36 @@ tuic_migrate() {
     tuic_show_summary
     tuic_sensitive_warning
     tuic_render_client_url "$tuic_new_json"
-    ui_dim "$TUIC_TASK_D_NOTICE"
+    ui_dim "$TUIC_HOP_OPTIONAL_NOTICE"
 }
 
 # 中文注释：统计目录内 TUIC 配置，输出机器可测 JSON。
 tuic_audit_json() {
     local dir=${1:-${is_conf_dir:-/etc/sing-box/conf}}
-    local file json default_cert default_key
-    local total=0 insecure=0 domain_cert=0 password_equals_uuid=0 udp_443=0
+    local file json default_cert default_key port
+    local total=0 insecure=0 domain_cert=0 password_equals_uuid=0 udp_443=0 port_hopping_enabled=0 port_hopping_residual=0
 
     tuic_load_cert
+    tuic_load_hop
     default_cert=$(cert_default_self_signed_certificate_path)
     default_key=$(cert_default_self_signed_key_path)
     for file in "$dir"/*.json; do
         [[ -f $file ]] || continue
         jq -e '.inbounds[0].type == "tuic"' "$file" >/dev/null 2>&1 || continue
         json=$(cat "$file")
+        port=$(jq -r '.inbounds[0].listen_port // empty' <<<"$json")
         total=$((total + 1))
-        [[ $(jq -r '.inbounds[0].listen_port // empty' <<<"$json") == 443 ]] && udp_443=$((udp_443 + 1))
+        [[ $port == 443 ]] && udp_443=$((udp_443 + 1))
         [[ $(jq -r '.inbounds[0].users[0].uuid // empty' <<<"$json") == "$(jq -r '.inbounds[0].users[0].password // empty' <<<"$json")" ]] && password_equals_uuid=$((password_equals_uuid + 1))
         if [[ $(jq -r '.inbounds[0].tls.certificate_path // ""' <<<"$json") == "$default_cert" && $(jq -r '.inbounds[0].tls.key_path // ""' <<<"$json") == "$default_key" ]]; then
             insecure=$((insecure + 1))
         elif jq -e '.inbounds[0].tls.server_name and (.inbounds[0].tls.certificate_provider or .inbounds[0].tls.acme or .inbounds[0].tls.certificate_path)' <<<"$json" >/dev/null 2>&1; then
             domain_cert=$((domain_cert + 1))
+        fi
+        if [[ $port ]] && tuic_hop_has_instance "$port"; then
+            port_hopping_enabled=$((port_hopping_enabled + 1))
+        elif [[ $port ]] && tuic_hop_detect_residual_for_port "$port"; then
+            port_hopping_residual=$((port_hopping_residual + 1))
         fi
     done
 
@@ -945,7 +1168,9 @@ tuic_audit_json() {
         --argjson domain_cert "$domain_cert" \
         --argjson password_equals_uuid "$password_equals_uuid" \
         --argjson udp_443 "$udp_443" \
-        '{total:$total,insecure:$insecure,domain_cert:$domain_cert,password_equals_uuid:$password_equals_uuid,udp_443:$udp_443,port_hopping:"not integrated"}'
+        --argjson port_hopping_enabled "$port_hopping_enabled" \
+        --argjson port_hopping_residual "$port_hopping_residual" \
+        '{total:$total,insecure:$insecure,domain_cert:$domain_cert,password_equals_uuid:$password_equals_uuid,udp_443:$udp_443,port_hopping_enabled:$port_hopping_enabled,port_hopping_residual:$port_hopping_residual}'
 }
 
 # 中文注释：只读审计当前 TUIC 配置，不修改任何文件。
@@ -958,7 +1183,8 @@ tuic_audit() {
     ui_kv "domain cert TUIC" "$(jq -r '.domain_cert' <<<"$audit")"
     ui_kv "password == uuid" "$(jq -r '.password_equals_uuid' <<<"$audit")"
     ui_kv "UDP/443 TUIC" "$(jq -r '.udp_443' <<<"$audit")"
-    ui_kv "Port-Hopping" "not integrated"
+    ui_kv "Port-Hopping enabled" "$(jq -r '.port_hopping_enabled' <<<"$audit")"
+    ui_kv "Port-Hopping residual" "$(jq -r '.port_hopping_residual' <<<"$audit")"
 }
 
 # 中文注释：列出当前 TUIC 配置。
@@ -974,7 +1200,7 @@ tuic_detect_config() {
 
 # 中文注释：构建 TUIC 菜单状态行。
 tuic_menu_status_line() {
-    local count cert_count udp443
+    local count cert_count udp443 hop_total hop_active
 
     count=$(tuic_detect_config | sed '/^$/d' | wc -l | tr -d ' ')
     cert_count=$(for file in "${is_conf_dir:-/etc/sing-box/conf}"/*.json; do [[ -f $file ]] && jq -r '.certificate_providers[]?.tag' "$file" 2>/dev/null; done | sed '/^$/d' | sort -u | wc -l | tr -d ' ')
@@ -987,7 +1213,10 @@ tuic_menu_status_line() {
     else
         udp443=unknown
     fi
-    printf 'TUIC configs: %s | UDP/443: %s | Cert profiles: %s\n' "${count:-0}" "$udp443" "${cert_count:-0}"
+    tuic_load_hop
+    hop_total=$(tuic_hop_count_instances 2>/dev/null || printf '0\n')
+    hop_active=$(tuic_hop_count_active_instances 2>/dev/null || printf '0\n')
+    printf 'TUIC configs: %s | UDP/443: %s | Port-Hopping: %s/%s | Cert profiles: %s\n' "${count:-0}" "$udp443" "${hop_active:-0}" "${hop_total:-0}" "${cert_count:-0}"
 }
 
 # 中文注释：TUIC 子菜单；CLI 路径不会调用 clear/pause。
@@ -1008,6 +1237,7 @@ tuic_menu() {
         ui_menu_item 4 "修改 TUIC 配置"
         ui_menu_item 5 "审计 TUIC 配置"
         ui_menu_item 6 "删除 TUIC 配置"
+        ui_menu_item 7 "管理 TUIC Port-Hopping"
         ui_menu_item 0 "返回上一级"
         ui_blank
         ui_dim "主菜单：输入 0 退出脚本。子菜单：输入 0 返回上一级。"
@@ -1047,6 +1277,10 @@ tuic_menu() {
             ui_read_or_cancel config "请输入要删除的 TUIC 配置名（q 取消）： " || continue
             tuic_delete "$config"
             ui_pause
+            ;;
+        7)
+            tuic_load_hop
+            tuic_hop_menu
             ;;
         0)
             return 0
@@ -1096,11 +1330,16 @@ tuic_main() {
         shift
         tuic_audit "$@"
         ;;
+    hop)
+        shift
+        tuic_load_hop
+        tuic_hop_main "$@"
+        ;;
     menu)
         tuic_menu
         ;;
     -h | --help | help)
-        ui_print "Usage: $is_core tuic <add|info|url|change|delete|migrate|audit|menu> [options]"
+        ui_print "Usage: $is_core tuic <add|info|url|change|delete|migrate|audit|hop|menu> [options]"
         ;;
     *)
         tuic_fail "无法识别 TUIC 子命令: $subcommand"
