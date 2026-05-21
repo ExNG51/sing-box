@@ -128,8 +128,18 @@ assert_contains 'return 1' "$ASK_SNIPPET" \
 
 assert_contains 'is_test port ' "$ASK_SNIPPET" \
     'ask() must still validate ports'
-assert_contains 'is_test port_used' "$ASK_SNIPPET" \
-    'ask() must still validate used ports'
+assert_contains 'is_current_listen_port_used "$REPLY"' "$ASK_SNIPPET" \
+    'ask() must validate used listen ports through the protocol-aware helper'
+assert_contains 'listen_port_used_message "$REPLY" "$(get_current_listen_network)"' "$ASK_SNIPPET" \
+    'ask() must report used listen ports with explicit TCP/UDP network context'
+assert_match '^is_current_listen_port_used\(\)' "$REPO_ROOT/src/core.sh" \
+    'core.sh must expose the current protocol listen-port helper'
+assert_match '^is_listen_port_used_for_protocol\(\)' "$REPO_ROOT/src/core.sh" \
+    'core.sh must expose protocol-aware listen-port detection'
+assert_match '^get_current_listen_network\(\)' "$REPO_ROOT/src/core.sh" \
+    'core.sh must expose current listen network resolution'
+assert_match '^listen_port_used_message\(\)' "$REPO_ROOT/src/core.sh" \
+    'core.sh must expose protocol-specific used-port message'
 assert_contains 'is_test path ' "$ASK_SNIPPET" \
     'ask() must still validate paths'
 assert_contains 'is_test uuid ' "$ASK_SNIPPET" \
@@ -157,8 +167,8 @@ assert_match '^info\(\)' "$REPO_ROOT/src/core.sh" \
 assert_match '^url_qr\(\)' "$REPO_ROOT/src/core.sh" \
     'url/qr output path must remain present'
 
-assert_match '^is_sh_ver=v1\.23$' "$REPO_ROOT/sing-box.sh" \
-    'sing-box.sh must bump the manager version to v1.23'
+assert_match '^is_sh_ver=v1\.25$' "$REPO_ROOT/sing-box.sh" \
+    'sing-box.sh must keep the manager version at v1.25'
 
 default_output="$TMP_DIR/default.out"
 if ! run_with_timeout 3 bash -c '

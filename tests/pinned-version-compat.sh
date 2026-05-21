@@ -6,6 +6,11 @@ fail() {
     exit 1
 }
 
+skip() {
+    printf '[SKIP] %s\n' "$1"
+    exit 0
+}
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
@@ -39,14 +44,38 @@ release_api="https://api.github.com/repos/${REPO}/releases/tags/${VERSION}"
 release_json="$TEST_ROOT/download/release.json"
 archive="$TEST_ROOT/download/$asset"
 
-download_https() {
+if ! command -v curl >/dev/null 2>&1; then
+    skip "curl is not available; skipping network compatibility test"
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    skip "jq is not available; skipping network compatibility test"
+fi
+
+if ! command -v tar >/dev/null 2>&1; then
+    skip "tar is not available; skipping network compatibility test"
+fi
+
+if ! curl -fsSL --connect-timeout 5 --max-time 10 "https://api.github.com/repos/${REPO}" >/dev/null 2>&1; then
+    skip "api.github.com is unreachable; skipping pinned-version compatibility test"
+fi
+
+download_https_or_skip() {
     local url=$1
     local output=$2
+    local http_code
     case $url in
     https://*) ;;
     *) fail "refusing non-HTTPS URL: $url" ;;
     esac
-    curl -fsSL "$url" -o "$output"
+    if ! http_code=$(curl -sSL --connect-timeout 10 --max-time 120 -w '%{http_code}' "$url" -o "$output"); then
+        rm -f "$output"
+        skip "network download failed for $url; skipping pinned-version compatibility test"
+    fi
+    case $http_code in
+    2*) ;;
+    *) fail "HTTP $http_code downloading $url" ;;
+    esac
 }
 
 verify_sha256_digest() {
@@ -63,15 +92,15 @@ verify_sha256_digest() {
     [[ $actual == "$expected" ]] || fail "SHA256 mismatch for $file"
 }
 
-download_https "$release_api" "$release_json"
+download_https_or_skip "$release_api" "$release_json"
 download_url="$(jq -r --arg name "$asset" '.assets[] | select(.name == $name) | .browser_download_url // empty' "$release_json")"
 digest="$(jq -r --arg name "$asset" '.assets[] | select(.name == $name) | .digest // empty' "$release_json")"
 [[ $download_url ]] || fail "asset not found in release: $asset"
 [[ $digest == sha256:* ]] || fail "GitHub release digest not found for asset: $asset"
 
-download_https "$download_url" "$archive"
+download_https_or_skip "$download_url" "$archive"
 verify_sha256_digest "$archive" "$digest"
-tar -xzf "$archive" -C "$TEST_ROOT/extract"
+tar -xzf "$archive" -C "$TEST_ROOT/extract" || fail "failed to extract release archive: $asset"
 SING_BOX_BIN="$(find "$TEST_ROOT/extract" -type f -name sing-box | head -n 1)"
 [[ -x $SING_BOX_BIN ]] || chmod +x "$SING_BOX_BIN"
 "$SING_BOX_BIN" version | grep -Fq "${VERSION#v}" || fail "downloaded sing-box is not $VERSION"
