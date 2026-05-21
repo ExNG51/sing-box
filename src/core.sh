@@ -2652,6 +2652,10 @@ main() {
         load dns.sh
         dns_set ${@:2}
         ;;
+    tuic)
+        load tuic.sh
+        tuic_main "${@:2}"
+        ;;
     debug)
         is_debug=1
         get info $2
