@@ -781,20 +781,45 @@ tuic_enable_hop_for_current_config() {
 }
 
 tuic_maybe_enable_hop_after_add() {
+    local enable_hop_choice range interval
+
     [[ ${is_gen:-} || ${tuic_dry_run:-} ]] && return 0
     if [[ $tuic_hop_enable ]]; then
         tuic_enable_hop_for_current_config
         return $?
     fi
     if [[ ${is_main_start:-} ]]; then
+        range=${tuic_hop_range:-auto}
+        interval=${tuic_hop_interval:-30}
         ui_blank
-        ui_confirm_token "是否启用 TUIC Port-Hopping？" "APPLY-HOP" && {
-            tuic_hop_enable=1
-            tuic_enable_hop_for_current_config
-            return $?
+        ui_print ">>> TUIC Port-Hopping 可选增强"
+        ui_kv "真实端口" "${tuic_port}/udp"
+        ui_kv "默认范围" "$range"
+        ui_kv "推荐 interval" "${interval}s"
+        ui_warn "该操作会写入 nftables / systemd / UFW 相关系统对象。"
+        ui_read_or_cancel enable_hop_choice "是否启用 TUIC Port-Hopping？[y/N]：" || {
+            ui_warn "已跳过 TUIC Port-Hopping。"
+            return 0
         }
-        ui_warn "已跳过 TUIC Port-Hopping。"
-        return 0
+        case "$enable_hop_choice" in
+        y | Y | yes | YES)
+            ;;
+        "" | n | N | no | NO)
+            ui_warn "已跳过 TUIC Port-Hopping。"
+            return 0
+            ;;
+        *)
+            ui_warn "无效输入，已跳过 TUIC Port-Hopping。"
+            return 0
+            ;;
+        esac
+        ui_confirm_token "确认写入 TUIC Port-Hopping 系统对象？" "APPLY-HOP" || {
+            ui_warn "已取消 TUIC Port-Hopping 写入。"
+            return 0
+        }
+        tuic_hop_enable=1
+        tuic_enable_hop_for_current_config
+        return $?
     fi
     ui_dim "$TUIC_HOP_OPTIONAL_NOTICE"
 }
@@ -867,8 +892,7 @@ tuic_apply_hop_change_action() {
         fi
         allow_missing=
         [[ $tuic_allow_missing_listener || $tuic_yes ]] && allow_missing=1
-        tuic_hop_delete_instance "$old_port" --yes || return 1
-        tuic_hop_create_or_update_instance "$new_port" "$range" "${tuic_hop_old_interval:-30}" "$allow_missing"
+        tuic_hop_migrate_instance "$old_port" "$new_port" "$range" "${tuic_hop_old_interval:-30}" "$allow_missing"
         ;;
     esac
 }
@@ -1219,9 +1243,72 @@ tuic_menu_status_line() {
     printf 'TUIC configs: %s | UDP/443: %s | Port-Hopping: %s/%s | Cert profiles: %s\n' "${count:-0}" "$udp443" "${hop_active:-0}" "${hop_total:-0}" "${cert_count:-0}"
 }
 
+# 中文注释：交互式添加 TUIC；证书模式由菜单选择，实际写入仍复用 tuic_add。
+tuic_menu_add_config() {
+    local choice port uuid password cc domain cert_path key_path
+    local args=()
+
+    ui_blank
+    ui_print ">>> 添加 TUIC 配置"
+    ui_blank
+    ui_menu_item 1 "Domain + ACME 自动证书"
+    ui_menu_item 2 "Domain + file-cert 文件证书"
+    ui_menu_item 3 "Self-signed insecure 自签模式"
+    ui_menu_item 0 "返回上一级"
+    ui_blank
+    ui_read_raw choice "请输入选项编号（0 返回）： " || return 1
+    case "$choice" in
+    1)
+        ;;
+    2)
+        ;;
+    3)
+        ui_warn "该模式会输出 allow_insecure=1，仅建议测试或兼容场景使用。"
+        ;;
+    0)
+        return "${UI_RETURN_TO_MENU:-130}"
+        ;;
+    q | Q)
+        ui_warn "子菜单请使用 0 返回上一级。"
+        return "${UI_RETURN_TO_MENU:-130}"
+        ;;
+    *)
+        ui_error "无效选项。"
+        return 1
+        ;;
+    esac
+
+    ui_read_or_cancel port "请输入 TUIC UDP 监听端口（默认 10443，回车使用默认值，q 取消）： " || return $?
+    port=${port:-10443}
+    ui_read_or_cancel uuid "请输入 UUID（默认 auto，q 取消）： " || return $?
+    uuid=${uuid:-auto}
+    ui_read_or_cancel password "请输入 Password（默认 auto，q 取消）： " || return $?
+    password=${password:-auto}
+    ui_read_or_cancel cc "请输入 Congestion Control（bbr/cubic/new_reno，默认 bbr，q 取消）： " || return $?
+    cc=${cc:-bbr}
+
+    case "$choice" in
+    1)
+        ui_read_or_cancel domain "请输入域名（q 取消）： " || return $?
+        args=(--domain "$domain" --tls acme)
+        ;;
+    2)
+        ui_read_or_cancel domain "请输入域名（q 取消）： " || return $?
+        ui_read_or_cancel cert_path "请输入 certificate_path 绝对路径（q 取消）： " || return $?
+        ui_read_or_cancel key_path "请输入 key_path 绝对路径（q 取消）： " || return $?
+        args=(--domain "$domain" --cert-file "$cert_path" --key-file "$key_path")
+        ;;
+    3)
+        args=(--insecure)
+        ;;
+    esac
+
+    tuic_add --port "$port" --uuid "$uuid" --password "$password" --cc "$cc" "${args[@]}"
+}
+
 # 中文注释：TUIC 子菜单；CLI 路径不会调用 clear/pause。
 tuic_menu() {
-    local choice config
+    local choice config menu_status
 
     is_main_start=1
     while :; do
@@ -1251,12 +1338,9 @@ tuic_menu() {
             ui_pause
             ;;
         2)
-            tuic_warn "菜单添加当前提供最小 insecure 向导；domain/file cert 建议使用 CLI。"
-            tuic_reset_state
-            ui_read_or_cancel tuic_port "请输入 TUIC UDP 监听端口（默认 10443，回车使用默认值，q 取消）： " || continue
-            tuic_port=${tuic_port:-10443}
-            tuic_add --port "$tuic_port" --uuid auto --password auto --insecure
-            ui_pause
+            tuic_menu_add_config
+            menu_status=$?
+            [[ $menu_status -eq ${UI_RETURN_TO_MENU:-130} ]] || ui_pause
             ;;
         3)
             ui_blank
