@@ -464,6 +464,19 @@ tuic_hop_safe_remove_path() {
     safe_remove_path "$@"
 }
 
+# 中文注释：预校验即将删除的 Port-Hopping 文件是否属于脚本管理范围。
+tuic_hop_precheck_remove_paths() {
+    local path
+
+    type assert_safe_remove_path >/dev/null 2>&1 || {
+        tuic_hop_fail "缺少 assert_safe_remove_path，拒绝删除 TUIC Port-Hopping 文件。"
+        return 1
+    }
+    for path in "$@"; do
+        assert_safe_remove_path "$path" || return 1
+    done
+}
+
 tuic_hop_write_common_files() {
     local apply_content systemd_content
 
@@ -540,34 +553,10 @@ tuic_hop_configure_ufw_rules() {
 
 tuic_hop_create_or_update_instance() {
     local real_port=$1 range_arg=${2:-auto} interval=${3:-$TUIC_HOP_DEFAULT_INTERVAL} allow_missing_listener=${4:-}
-    local range range_start range_end env_file nft_file env_content nft_content should_finalize=false
+    local preflight range_start range_end env_file nft_file env_content nft_content should_finalize=false
 
-    tuic_hop_validate_port "$real_port" || {
-        tuic_hop_fail "TUIC Port-Hopping 真实 UDP 端口无效: $real_port"
-        return 1
-    }
-    [[ $interval =~ ^[1-9][0-9]*$ ]] || {
-        tuic_hop_fail "TUIC Port-Hopping interval 无效: $interval"
-        return 1
-    }
-    if [[ $range_arg == auto || ! $range_arg ]]; then
-        range=$(tuic_hop_calculate_auto_range "$real_port") || {
-            tuic_hop_fail "无法自动计算可用 TUIC Port-Hopping UDP 范围。"
-            return 1
-        }
-        range_start=${range%-*}
-        range_end=${range#*-}
-    else
-        read -r range_start range_end < <(tuic_hop_parse_range_arg "$real_port" "$range_arg") || {
-            tuic_hop_fail "TUIC Port-Hopping UDP 范围无效: $range_arg"
-            return 1
-        }
-    fi
-    tuic_hop_check_instance_port_conflict "$real_port" "$range_start" "$range_end" || return 1
-    tuic_hop_check_tuic_listener "$real_port" "$allow_missing_listener" || return 1
-    tuic_hop_check_range_listener_conflict "$range_start" "$range_end" || {
-        [[ ${TUIC_HOP_ALLOW_RANGE_LISTENER:-} ]] || return 1
-    }
+    preflight=$(tuic_hop_preflight_create_or_update_instance "$real_port" "$range_arg" "$interval" "$allow_missing_listener") || return 1
+    read -r range_start range_end <<<"$preflight"
 
     env_file=$(tuic_hop_get_config_file "$real_port")
     nft_file=$(tuic_hop_get_nft_rule_file "$real_port")
@@ -597,6 +586,41 @@ tuic_hop_create_or_update_instance() {
     tuic_hop_kv "systemd" "$(tuic_hop_get_service_name "$real_port")"
     tuic_hop_warn "请确认云安全组已放行 UDP ${real_port} 与 ${range_start}-${range_end}。"
     tuic_hop_show_client_hint "$real_port"
+}
+
+# 中文注释：只执行创建/更新 Port-Hopping 前的输入与冲突预检，不写系统对象。
+tuic_hop_preflight_create_or_update_instance() {
+    local real_port=$1 range_arg=${2:-auto} interval=${3:-$TUIC_HOP_DEFAULT_INTERVAL} allow_missing_listener=${4:-}
+    local range range_start range_end
+
+    tuic_hop_validate_port "$real_port" || {
+        tuic_hop_fail "TUIC Port-Hopping 真实 UDP 端口无效: $real_port"
+        return 1
+    }
+    [[ $interval =~ ^[1-9][0-9]*$ ]] || {
+        tuic_hop_fail "TUIC Port-Hopping interval 无效: $interval"
+        return 1
+    }
+    if [[ $range_arg == auto || ! $range_arg ]]; then
+        range=$(tuic_hop_calculate_auto_range "$real_port") || {
+            tuic_hop_fail "无法自动计算可用 TUIC Port-Hopping UDP 范围。"
+            return 1
+        }
+        range_start=${range%-*}
+        range_end=${range#*-}
+    else
+        read -r range_start range_end < <(tuic_hop_parse_range_arg "$real_port" "$range_arg") || {
+            tuic_hop_fail "TUIC Port-Hopping UDP 范围无效: $range_arg"
+            return 1
+        }
+    fi
+    tuic_hop_check_instance_port_conflict "$real_port" "$range_start" "$range_end" || return 1
+    tuic_hop_check_tuic_listener "$real_port" "$allow_missing_listener" || return 1
+    tuic_hop_check_range_listener_conflict "$range_start" "$range_end" || {
+        [[ ${TUIC_HOP_ALLOW_RANGE_LISTENER:-} ]] || return 1
+    }
+
+    printf '%s %s\n' "$range_start" "$range_end"
 }
 
 tuic_hop_nft_table_exists() {
@@ -694,9 +718,115 @@ tuic_hop_validate_instance() {
     [[ $failed -eq 0 ]]
 }
 
+# 中文注释：迁移后的运行态不可测时，至少验证新实例文件已完整写入。
+tuic_hop_validate_migrated_instance() {
+    local real_port=$1 allow_missing_listener=${2:-}
+    local cfg table nft_file service failed=0 runtime_skipped=false
+
+    cfg=$(tuic_hop_get_config_file "$real_port")
+    tuic_hop_validate_env_file "$cfg" || return 1
+    table=$(tuic_hop_read_env_value "$cfg" NFT_TABLE_NAME) || return 1
+    nft_file=$(tuic_hop_read_env_value "$cfg" NFT_RULE_FILE) || return 1
+    service=$(tuic_hop_get_service_name "$real_port")
+
+    [[ -f $nft_file ]] || {
+        tuic_hop_warn "nft rule file 缺失: $nft_file"
+        failed=1
+    }
+    if [[ ${TUIC_HOP_SKIP_NFT:-} ]] || ! tuic_hop_command_exists nft; then
+        runtime_skipped=true
+    else
+        tuic_hop_nft_table_exists "$table" || {
+            tuic_hop_warn "nft table 不存在: inet $table"
+            failed=1
+        }
+    fi
+    if [[ ${TUIC_HOP_SKIP_SYSTEMD:-} ]] || ! tuic_hop_command_exists systemctl; then
+        runtime_skipped=true
+    else
+        tuic_hop_systemd_is_active "$service" || {
+            tuic_hop_warn "systemd service 非 active: $service"
+            failed=1
+        }
+    fi
+    tuic_hop_is_udp_port_listening "$real_port" || {
+        if [[ $allow_missing_listener ]]; then
+            tuic_hop_warn "未检测到真实 TUIC UDP ${real_port} 监听；已按显式参数继续。"
+        else
+            tuic_hop_warn "未检测到真实 TUIC UDP ${real_port} 监听。"
+            failed=1
+        fi
+    }
+
+    tuic_hop_status_instance "$real_port" || true
+    [[ $runtime_skipped == true && $failed -eq 0 ]] && tuic_hop_warn "运行态验证不可用，已完成 TUIC Port-Hopping 文件级验证。"
+    [[ $failed -eq 0 ]]
+}
+
+# 中文注释：迁移 Port-Hopping 实例；优先创建新实例并验证，通过后再删除旧实例。
+tuic_hop_migrate_instance() {
+    local old_port=$1 new_port=$2 range_arg=${3:-auto} interval=${4:-$TUIC_HOP_DEFAULT_INTERVAL} allow_missing_listener=${5:-}
+    local old_cfg old_start old_end new_range_arg candidate_start candidate_end preflight
+
+    tuic_hop_validate_port "$old_port" || {
+        tuic_hop_fail "旧 TUIC Port-Hopping 真实 UDP 端口无效: $old_port"
+        return 1
+    }
+    tuic_hop_validate_port "$new_port" || {
+        tuic_hop_fail "新 TUIC Port-Hopping 真实 UDP 端口无效: $new_port"
+        return 1
+    }
+    [[ $old_port != "$new_port" ]] || return 0
+    [[ $interval =~ ^[1-9][0-9]*$ ]] || interval=$TUIC_HOP_DEFAULT_INTERVAL
+
+    tuic_hop_has_instance "$old_port" || {
+        tuic_hop_fail "未找到旧 TUIC Port-Hopping 实例: ${old_port}/udp"
+        return 1
+    }
+    tuic_hop_has_instance "$new_port" && {
+        tuic_hop_fail "新真实端口已存在 TUIC Port-Hopping 实例: ${new_port}/udp"
+        return 1
+    }
+
+    old_cfg=$(tuic_hop_get_config_file "$old_port")
+    old_start=$(tuic_hop_read_env_value "$old_cfg" RANGE_START) || return 1
+    old_end=$(tuic_hop_read_env_value "$old_cfg" RANGE_END) || return 1
+    new_range_arg=${range_arg:-auto}
+    if [[ $new_range_arg != auto && $new_range_arg =~ ^[0-9]+-[0-9]+$ ]]; then
+        candidate_start=${new_range_arg%-*}
+        candidate_end=${new_range_arg#*-}
+        if tuic_hop_validate_port "$candidate_start" &&
+            tuic_hop_validate_port "$candidate_end" &&
+            { tuic_hop_ranges_overlap "$candidate_start" "$candidate_end" "$old_start" "$old_end" ||
+                tuic_hop_is_port_in_range "$old_port" "$candidate_start" "$candidate_end" ||
+                tuic_hop_is_port_in_range "$new_port" "$old_start" "$old_end"; }; then
+            tuic_hop_warn "迁移时请求范围与旧实例冲突，已改用 auto 范围。"
+            new_range_arg=auto
+        fi
+    fi
+
+    preflight=$(tuic_hop_preflight_create_or_update_instance "$new_port" "$new_range_arg" "$interval" "$allow_missing_listener") || return 1
+    read -r candidate_start candidate_end <<<"$preflight"
+    tuic_hop_create_or_update_instance "$new_port" "${candidate_start}-${candidate_end}" "$interval" "$allow_missing_listener" || {
+        tuic_hop_warn "新 TUIC Port-Hopping 实例创建失败，旧实例已保留。"
+        tuic_hop_report_residuals "$old_port"
+        return 1
+    }
+    tuic_hop_validate_migrated_instance "$new_port" "$allow_missing_listener" || {
+        tuic_hop_warn "新 TUIC Port-Hopping 实例验证失败，旧实例已保留。"
+        tuic_hop_report_residuals "$old_port"
+        return 1
+    }
+    tuic_hop_delete_instance "$old_port" --yes || {
+        tuic_hop_warn "旧 TUIC Port-Hopping 实例删除失败，请按残留报告人工确认。"
+        tuic_hop_report_residuals "$old_port"
+        return 1
+    }
+}
+
 tuic_hop_delete_instance() {
     local real_port=$1 service cfg nft_file table range_start range_end should_finalize=false
-    local delete_yes= delete_confirm=
+    local delete_yes= delete_confirm= state_mutated=false
     shift || true
 
     while [[ $# -gt 0 ]]; do
@@ -734,16 +864,51 @@ tuic_hop_delete_instance() {
     range_end=$(tuic_hop_read_env_value "$cfg" RANGE_END)
     service=$(tuic_hop_get_service_name "$real_port")
 
-    begin_backup_transaction_if_needed tuic-hop-delete && should_finalize=true
+    tuic_hop_precheck_remove_paths "$cfg" "$nft_file" || {
+        tuic_hop_report_residuals "$real_port"
+        return 1
+    }
+    if begin_backup_transaction_if_needed tuic-hop-delete; then
+        should_finalize=true
+    elif [[ ${IS_BACKUP_ACTIVE:-} != true ]]; then
+        return 1
+    fi
+    if type backup_path_before_write >/dev/null 2>&1; then
+        backup_path_before_write "$cfg" || {
+            type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+            tuic_hop_report_residuals "$real_port"
+            return 1
+        }
+        backup_path_before_write "$nft_file" || {
+            type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+            tuic_hop_report_residuals "$real_port"
+            return 1
+        }
+    fi
     if [[ ! ${TUIC_HOP_SKIP_SYSTEMD:-} ]] && tuic_hop_command_exists systemctl; then
-        systemctl disable --now "$service" >/dev/null 2>&1 || true
+        if systemctl disable --now "$service" >/dev/null 2>&1; then
+            state_mutated=true
+        else
+            type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+            tuic_hop_warn "停止/禁用 TUIC Port-Hopping systemd 实例失败，已中止删除。"
+            tuic_hop_report_residuals "$real_port"
+            return 1
+        fi
     fi
     if [[ ! ${TUIC_HOP_SKIP_NFT:-} ]] && tuic_hop_command_exists nft && nft list table inet "$table" >/dev/null 2>&1; then
-        nft delete table inet "$table" || true
+        if nft delete table inet "$table"; then
+            state_mutated=true
+        else
+            type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
+            tuic_hop_warn "删除 TUIC Port-Hopping nft table 失败，已中止删除。"
+            tuic_hop_report_residuals "$real_port"
+            return 1
+        fi
     fi
     tuic_hop_safe_remove_path "$cfg" "$nft_file" || {
         type rollback_latest_backup >/dev/null 2>&1 && rollback_latest_backup --yes >/dev/null 2>&1 || true
         tuic_hop_warn "TUIC Port-Hopping 删除失败，已尝试回滚。"
+        [[ $state_mutated == true ]] && tuic_hop_warn "systemd/nftables 运行态可能已变化，不保证已恢复。"
         tuic_hop_report_residuals "$real_port"
         return 1
     }
