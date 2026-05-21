@@ -89,14 +89,20 @@ run_schema_generation_checks() {
     local old_json new_json normal_json reality_json
 
     if [[ ${BASH_VERSINFO[0]:-0} -lt 4 ]]; then
-        assert_log_contains src/core.sh 'if is_core_version_ge "$is_core_ver" "1.14.0"; then' \
-            'AnyTLS schema branch must compare full sing-box versions for 1.14+ ACME behavior'
-        assert_log_contains src/core.sh 'is_anytls_tls="tls:{enabled:true,certificate_provider:\"$is_anytls_acme_tag\"}"' \
-            'sing-box 1.14+ AnyTLS ACME must point tls.certificate_provider at a root provider tag'
-        assert_log_contains src/core.sh 'is_root_extra_json=",certificate_providers:[{type:\"acme\",tag:\"$is_anytls_acme_tag\",domain:[\"$is_anytls_acme_domain\"],data_directory:\"$is_anytls_acme_data_dir\"}]"' \
-            'sing-box 1.14+ AnyTLS ACME must emit root certificate_providers'
-        assert_log_contains src/core.sh 'is_anytls_tls="tls:{enabled:true,acme:{domain:[\"$is_anytls_acme_domain\"],data_directory:\"$is_anytls_acme_data_dir\"}}"' \
-            'sing-box 1.13.x AnyTLS ACME must keep tls.acme with data_directory'
+        assert_log_contains src/core.sh 'load cert.sh' \
+            'AnyTLS ACME path must load shared certificate helpers'
+        assert_log_contains src/core.sh 'cert_preflight_acme_domain' \
+            'AnyTLS ACME preflight must call shared certificate helper'
+        assert_log_contains src/core.sh 'cert_render_tls_json' \
+            'AnyTLS ACME TLS rendering must call shared certificate helper'
+        assert_log_contains src/core.sh 'cert_render_root_extra_json' \
+            'AnyTLS ACME root provider rendering must call shared certificate helper'
+        assert_log_contains src/core.sh 'cert_acme_mode_for_core' \
+            'AnyTLS ACME rendering must keep version-aware provider/legacy selection'
+        assert_log_contains src/cert.sh 'cert_render_tls_json' \
+            'shared certificate module must render inbound TLS JSON'
+        assert_log_contains src/cert.sh 'cert_render_root_extra_json' \
+            'shared certificate module must render root certificate_providers'
         assert_log_contains src/core.sh 'is_add_public_key=' \
             'create server must reset reality and root-level JSON helpers before regenerating config'
         return 0
@@ -107,6 +113,9 @@ run_schema_generation_checks() {
 set -o pipefail
 . "$REPO_ROOT/src/core.sh"
 
+load() {
+    . "$REPO_ROOT/src/$1"
+}
 msg() { :; }
 warn() { :; }
 err() {
@@ -156,6 +165,9 @@ EOF
 set -o pipefail
 . "$REPO_ROOT/src/core.sh"
 
+load() {
+    . "$REPO_ROOT/src/$1"
+}
 msg() { :; }
 warn() { :; }
 err() {
@@ -207,6 +219,9 @@ EOF
 set -o pipefail
 . "$REPO_ROOT/src/core.sh"
 
+load() {
+    . "$REPO_ROOT/src/$1"
+}
 msg() { :; }
 warn() { :; }
 err() {
@@ -254,6 +269,9 @@ EOF
 set -o pipefail
 . "$REPO_ROOT/src/core.sh"
 
+load() {
+    . "$REPO_ROOT/src/$1"
+}
 msg() { :; }
 warn() { :; }
 err() {
@@ -1280,6 +1298,9 @@ EOF
     REPO_ROOT="$REPO_ROOT" FAKE_CORE="$fake_core" bash <<'EOF'
 set -o pipefail
 . "$REPO_ROOT/src/core.sh"
+load() {
+    . "$REPO_ROOT/src/$1"
+}
 warn() { :; }
 err() {
     printf 'ERROR: %s\n' "$*" >&2
@@ -1302,6 +1323,9 @@ EOF
     if REPO_ROOT="$REPO_ROOT" FAKE_CORE="$fake_core" bash <<'EOF'
 set -euo pipefail
 . "$REPO_ROOT/src/core.sh"
+load() {
+    . "$REPO_ROOT/src/$1"
+}
 warn() { :; }
 err() {
     printf 'ERROR: %s\n' "$*" >&2

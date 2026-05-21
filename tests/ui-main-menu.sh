@@ -122,12 +122,32 @@ assert_match 'url \| qr\)' "$REPO_ROOT/src/core.sh" \
     'url/qr command branch must remain present'
 assert_contains 'msg "\e[4;${is_color}m${is_url}\e[0m"' "$REPO_ROOT/src/core.sh" \
     'URL output body must remain unchanged'
-assert_contains 'is_anytls_tls="tls:{enabled:true,certificate_provider:\"$is_anytls_acme_tag\"}"' "$REPO_ROOT/src/core.sh" \
-    'AnyTLS 1.14+ ACME schema logic must remain present'
+assert_match 'load cert\.sh' "$REPO_ROOT/src/core.sh" \
+    'AnyTLS ACME path must load shared certificate helpers'
+assert_match 'cert_preflight_acme_domain' "$REPO_ROOT/src/core.sh" \
+    'AnyTLS ACME preflight must call shared certificate helper'
+assert_match 'cert_render_tls_json' "$REPO_ROOT/src/core.sh" \
+    'AnyTLS ACME TLS rendering must call shared certificate helper'
+assert_match 'cert_render_root_extra_json' "$REPO_ROOT/src/core.sh" \
+    'AnyTLS ACME root provider rendering must call shared certificate helper'
+assert_match 'cert_acme_mode_for_core' "$REPO_ROOT/src/core.sh" \
+    'AnyTLS ACME rendering must keep core-version provider/legacy selection'
+assert_match 'cert_assert_core_acme_capability' "$REPO_ROOT/src/cert.sh" \
+    'shared certificate module must keep ACME capability check'
+assert_match 'with_acme' "$REPO_ROOT/src/cert.sh" \
+    'shared certificate module must still check with_acme'
+assert_match 'cert_assert_acme_domain_dns' "$REPO_ROOT/src/cert.sh" \
+    'shared certificate module must still check ACME domain DNS'
+assert_match 'cert_assert_acme_tcp_443_available' "$REPO_ROOT/src/cert.sh" \
+    'shared certificate module must still check ACME TCP 443 availability'
+assert_match 'tuic\)' "$REPO_ROOT/src/core.sh" \
+    'main dispatcher must include TUIC namespace'
+assert_match 'load tuic\.sh' "$REPO_ROOT/src/core.sh" \
+    'TUIC namespace must load src/tuic.sh'
 assert_match 'commit_server_config_with_validation' "$REPO_ROOT/src/core.sh" \
     'AnyTLS ACME transaction path must remain present'
 
-assert_match '^is_sh_ver=v1\.23$' "$REPO_ROOT/sing-box.sh" \
-    'sing-box.sh must bump the manager version to v1.23'
+assert_match '^is_sh_ver=v1\.25$' "$REPO_ROOT/sing-box.sh" \
+    'sing-box.sh must bump the manager version to v1.25'
 
 printf '[PASS] UI main menu checks\n'
