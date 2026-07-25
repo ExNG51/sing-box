@@ -154,7 +154,7 @@ MENU_LINES=()
 while IFS= read -r line || [[ -n $line ]]; do
     MENU_LINES+=("$line")
 done <"$OUTPUT_FILE"
-[[ ${#MENU_LINES[@]} -eq 22 ]] || fail 'main menu mock render must keep the expected 22-line layout'
+[[ ${#MENU_LINES[@]} -eq 23 ]] || fail 'main menu mock render must keep the expected 23-line layout (22 + exit message)'
 
 assert_line_equals 1 'sing-box 管理脚本'
 assert_line_equals 2 'Version: v1.31'
@@ -178,5 +178,6 @@ assert_line_equals 19 '主菜单：输入 0 退出脚本。子菜单：输入 0 
 assert_line_equals 20 '普通输入：输入 q 取消当前操作。'
 assert_line_equals 21 ''
 assert_line_equals 22 '请输入选项编号（0 退出）： '
+assert_line_equals 23 '[i] 已退出。'
 
 printf '[PASS] main menu layout checks\n'

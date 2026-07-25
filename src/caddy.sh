@@ -2,7 +2,9 @@ caddy_config() {
     is_caddy_site_file=$is_caddy_conf/${host}.conf
     case $1 in
     new)
-        mkdir -p $is_caddy_dir $is_caddy_dir/sites $is_caddy_conf
+        safe_ensure_dir "$is_caddy_dir"
+        safe_ensure_dir "$is_caddy_dir/sites"
+        safe_ensure_dir "$is_caddy_conf"
         safe_write_file "$is_caddyfile" <<-EOF
 # don't edit this file #
 # 不要编辑这个文件 #

@@ -40,6 +40,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AUDIT_DIR="$REPO_ROOT/.audit-tmp"
 mkdir -p "$AUDIT_DIR"
 TEST_ROOT="$(mktemp -d "$AUDIT_DIR/mock-backup-root.XXXXXX")"
+trap 'rm -rf "$TEST_ROOT"' EXIT
 LOG="$AUDIT_DIR/mock-backup-rollback.log"
 : >"$LOG"
 

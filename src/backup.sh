@@ -612,6 +612,9 @@ is_managed_rollback_path() {
     path_is_direct_child_with_suffix "$path" "$conf_dir" ".json" && return 0
 
     [[ $path == "$caddyfile" ]] && return 0
+    [[ $path == "$caddy_conf" ]] && return 0
+    [[ $path == "${is_caddy_dir:-${prefix}/etc/caddy}" ]] && return 0
+    [[ $path == "${is_caddy_dir:-${prefix}/etc/caddy}/sites" ]] && return 0
     path_is_direct_child_with_suffix "$path" "$caddy_conf" ".conf" && return 0
     path_is_direct_child_with_suffix "$path" "$caddy_conf" ".conf.add" && return 0
 
@@ -910,7 +913,13 @@ rollback_apply_manifest() {
             rm -rf -- "$path" || return 1
             cp -a "$src" "$path" || return 1
         else
-            rm -rf -- "$path" || return 1
+            # 新建目录回滚时仅 rmdir（空才删），避免误删用户后续放入的 .conf 配置；
+            # 非目录仍用 rm -rf。
+            if [[ -d $path ]]; then
+                rmdir -- "$path" 2>/dev/null || warn "rollback 保留非空目录: $path"
+            else
+                rm -rf -- "$path" || return 1
+            fi
         fi
     done < <(jq -r '.files[] | [(.existed | tostring), .path, (.backup_path // "")] | @tsv' "$manifest")
 }

@@ -30,6 +30,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AUDIT_DIR="$REPO_ROOT/.audit-tmp"
 mkdir -p "$AUDIT_DIR"
 TEST_ROOT="$(mktemp -d "$AUDIT_DIR/mock-update-root.XXXXXX")"
+trap 'rm -rf "$TEST_ROOT"' EXIT
 UPDATE_BLOCK="$TEST_ROOT/core_update.block"
 DOWNLOAD_BLOCK="$TEST_ROOT/download.block"
 UNINSTALL_BLOCK="$TEST_ROOT/uninstall.block"

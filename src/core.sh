@@ -786,7 +786,7 @@ create() {
         [[ ! $(grep "$is_caddy_conf" $is_caddyfile) ]] && {
             safe_append_file "$is_caddyfile" "import $is_caddy_conf/*.conf"
         }
-        [[ ! -d $is_caddy_conf ]] && mkdir -p $is_caddy_conf
+        [[ ! -d "$is_caddy_conf" ]] && safe_ensure_dir "$is_caddy_conf"
         caddy_config $2
         manage restart caddy &
         ;;
@@ -1487,8 +1487,14 @@ fail_anytls_acme_commit_after_write() {
     local message=$1
     local show_guidance=${2:-}
 
-    [[ $IS_BACKUP_ACTIVE == true ]] && finalize_backup_transaction
-    rollback_or_remove_failed_anytls_config
+    # 中文注释：失败时优先回滚当前活动事务（嵌套场景下不误 finalize 外层事务）；
+    # 若无活动事务则 finalize latest 再回滚，保留原 fallback 语义。
+    if type rollback_current_backup_transaction >/dev/null 2>&1 && [[ ${IS_BACKUP_ACTIVE:-} == true ]]; then
+        rollback_current_backup_transaction --yes || warn "当前事务回滚未完全成功，请手动检查配置与 backup 目录。"
+    else
+        [[ ${IS_BACKUP_ACTIVE:-} == true ]] && finalize_backup_transaction
+        rollback_or_remove_failed_anytls_config
+    fi
     [[ $show_guidance == true ]] && print_anytls_acme_failure_guidance
     err "$message"
     return 1
@@ -1534,7 +1540,7 @@ commit_server_config_with_validation() {
         return 1
     fi
 
-    if [[ $should_finalize == true || $IS_BACKUP_ACTIVE == true ]]; then
+    if [[ $should_finalize == true ]]; then
         finalize_backup_transaction
     fi
 }
@@ -2562,7 +2568,7 @@ is_main_menu() {
         ui_title "sing-box 管理脚本" "$is_sh_ver"
         ui_dim "$(build_main_status_line)"
         ask mainmenu || {
-            [[ ${is_menu_exit:-} ]] && break
+            [[ ${is_menu_exit:-} ]] && { ui_blank; ui_info "已退出。"; break; }
             continue
         }
         case $REPLY in

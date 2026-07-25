@@ -586,7 +586,7 @@ tuic_hop_create_or_update_instance() {
         tuic_hop_report_residuals "$real_port"
         return 1
     }
-    [[ $should_finalize == true || ${IS_BACKUP_ACTIVE:-} == true ]] && finalize_backup_transaction
+    [[ $should_finalize == true ]] && finalize_backup_transaction
 
     tuic_hop_blank
     tuic_hop_kv "真实端口" "${real_port}/udp"
@@ -834,7 +834,7 @@ tuic_hop_migrate_instance() {
 
 tuic_hop_delete_instance() {
     local real_port=$1 service cfg nft_file table range_start range_end should_finalize=false
-    local delete_yes= delete_confirm= state_mutated=false
+    local delete_yes='' delete_confirm='' state_mutated=false
     shift || true
 
     while [[ $# -gt 0 ]]; do
@@ -920,7 +920,7 @@ tuic_hop_delete_instance() {
         tuic_hop_report_residuals "$real_port"
         return 1
     }
-    [[ $should_finalize == true || ${IS_BACKUP_ACTIVE:-} == true ]] && finalize_backup_transaction
+    [[ $should_finalize == true ]] && finalize_backup_transaction
 
     tuic_hop_kv "已删除实例" "${real_port}/udp"
     tuic_hop_warn "未自动删除 UFW 规则；请人工确认 ${real_port}/udp 与 ${range_start}:${range_end}/udp 是否仍需保留。"

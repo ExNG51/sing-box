@@ -89,6 +89,9 @@ version_policy_simulation() {
         resolve_core_version_policy "v1.13.8" true >"$tmp_audit_root/conflict.out" 2>&1 && exit 7
         grep -Fq 'Cannot use --latest and --core-version at the same time.' "$tmp_audit_root/conflict.out" || exit 8
     )
+    local sim_rc=$?
+    rm -rf "$tmp_audit_root"
+    return $sim_rc
 }
 
 {

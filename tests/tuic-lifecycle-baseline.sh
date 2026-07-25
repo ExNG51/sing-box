@@ -126,12 +126,18 @@ tuic_url=$(tuic_render_client_url "$tuic_json")
 pass "TUIC domain provider render and URL omit allow_insecure"
 
 tuic_reset_state
-tuic_parse_add_args --port 443 --uuid 11111111-1111-1111-1111-111111111111 --password pass123 --domain example.com --cert-file /path/fullchain.cer --key-file /path/private.key
+# 使用可读临时证书文件，避免 file-cert 可读性 preflight 误拒（P2-02）。
+tmp_cert="$mock_bin/fullchain.cer"; tmp_key="$mock_bin/private.key"
+printf '-----BEGIN CERTIFICATE-----\nFIXTURE\n-----END CERTIFICATE-----\n' >"$tmp_cert"
+printf '-----BEGIN PRIVATE KEY-----\nFIXTURE\n-----END PRIVATE KEY-----\n' >"$tmp_key"
+tuic_parse_add_args --port 443 --uuid 11111111-1111-1111-1111-111111111111 --password pass123 --domain example.com --cert-file "$tmp_cert" --key-file "$tmp_key"
 tuic_prepare_add_state
 tuic_json=$(tuic_render_inbound_json)
-assert_json_string_expr "$tuic_json" \
-    '.inbounds[0].tls.server_name == "example.com" and .inbounds[0].tls.alpn[0] == "h3" and .inbounds[0].tls.certificate_path == "/path/fullchain.cer" and .inbounds[0].tls.key_path == "/path/private.key"' \
-    "TUIC file cert render should include server_name, h3, certificate_path, and key_path"
+assert_json_string_expr "$tuic_json" '.inbounds[0].tls.server_name == "example.com" and .inbounds[0].tls.alpn[0] == "h3"' "TUIC file cert render should include server_name and h3"
+rendered_cert=$(jq -r ".inbounds[0].tls.certificate_path" <<<"$tuic_json")
+rendered_key=$(jq -r ".inbounds[0].tls.key_path" <<<"$tuic_json")
+[[ $rendered_cert == "$tmp_cert" ]] || fail "TUIC file cert certificate_path should equal tmp_cert (got: $rendered_cert)"
+[[ $rendered_key == "$tmp_key" ]] || fail "TUIC file cert key_path should equal tmp_key (got: $rendered_key)"
 pass "TUIC file certificate render includes protocol TLS fields"
 
 tuic_reset_state

@@ -335,6 +335,14 @@ tuic_prepare_tls_mode() {
             tuic_fail "file-cert 模式必须提供 --domain 作为 TLS server_name。"
             return 1
         }
+        [[ -f $tuic_cert_file && -r $tuic_cert_file ]] || {
+            tuic_fail "file-cert 模式 --cert-file 不存在或不可读: $tuic_cert_file"
+            return 1
+        }
+        [[ -f $tuic_key_file && -r $tuic_key_file ]] || {
+            tuic_fail "file-cert 模式 --key-file 不存在或不可读: $tuic_key_file"
+            return 1
+        }
         tuic_tls_mode=file-cert
         return 0
     fi
@@ -787,6 +795,48 @@ tuic_rollback_after_failure() {
     fi
 }
 
+# 中文注释：端口变更后 hop 步骤失败；回滚当前活动事务以还原 TUIC 配置到旧端口。
+# P2-07 修复后 tuic_commit_upsert 不再 finalize 嵌套场景下的外层事务，因此 hop 失败时
+# 事务仍 active，优先用 rollback_current_backup_transaction 回滚整个活动事务（含 TUIC 端口
+# 变更 + hop 部分写入）。若事务已不 active（如独立调用 commit 后失败），回退用 IS_LAST_BACKUP_TXN_DIR
+# / latest 指针回滚。rollback 在 manifest 命中 sing-box|/conf/|config.json 时重启 sing-box，
+# 因此回滚后 TUIC 回到旧端口并自动重启；hop runtime（nft/systemd/UFW）不在回滚覆盖范围，
+# 需通过 tuic_hop_report_residuals 显式报告旧端口 hop 残留，便于人工确认或重试。
+tuic_rollback_port_change_after_hop_failure() {
+    local old_port=$1
+    local new_port=$2
+    local txn_dir
+
+    if [[ ${IS_BACKUP_ACTIVE:-} == true ]] && type rollback_current_backup_transaction >/dev/null 2>&1; then
+        rollback_current_backup_transaction --yes || true
+    else
+        txn_dir=${IS_LAST_BACKUP_TXN_DIR:-}
+        if [[ ! $txn_dir ]] && type rollback_latest_dir >/dev/null 2>&1; then
+            txn_dir=$(rollback_latest_dir 2>/dev/null || true)
+        fi
+        if [[ $txn_dir && -d $txn_dir ]]; then
+            if type rollback_backup_transaction_dir >/dev/null 2>&1; then
+                rollback_backup_transaction_dir "$txn_dir" --yes || true
+            elif type rollback_latest_backup >/dev/null 2>&1; then
+                rollback_latest_backup --yes || true
+            fi
+        elif type rollback_latest_backup >/dev/null 2>&1; then
+            rollback_latest_backup --yes || true
+        fi
+    fi
+
+    tuic_load_hop || true
+    if type tuic_hop_report_residuals >/dev/null 2>&1; then
+        [[ $old_port ]] && tuic_hop_report_residuals "$old_port" || true
+        # 新端口可能已被迁移创建出一个孤立 hop 实例（migrate 内部失败也只保留旧实例，
+        # 这里仍 defensively 报告，便于人工确认）。
+        [[ $new_port && $new_port != "$old_port" ]] && tuic_hop_has_instance "$new_port" 2>/dev/null && tuic_hop_report_residuals "$new_port" || true
+    fi
+
+    tuic_warn "TUIC 端口变更已回滚至 ${old_port}/udp；hop 步骤失败，请按残留报告确认后重试: sing-box tuic change \"$tuic_config_name\" --port $new_port"
+    return 1
+}
+
 # 中文注释：写入或更新 TUIC 配置，并执行 check + restart + rollback。
 tuic_commit_upsert() {
     local operation=${1:-tuic-write}
@@ -830,7 +880,7 @@ tuic_commit_upsert() {
         fi
     fi
 
-    [[ $should_finalize == true || ${IS_BACKUP_ACTIVE:-} == true ]] && finalize_backup_transaction
+    [[ $should_finalize == true ]] && finalize_backup_transaction
 }
 
 tuic_enable_hop_for_current_config() {
@@ -1209,7 +1259,10 @@ tuic_change() {
 
     tuic_new_json=$(tuic_render_inbound_json) || return 1
     tuic_commit_upsert change-tuic || return 1
-    tuic_apply_hop_change_action "$current_port" "$tuic_port" || return 1
+    tuic_apply_hop_change_action "$current_port" "$tuic_port" || {
+        tuic_rollback_port_change_after_hop_failure "$current_port" "$tuic_port"
+        return 1
+    }
     ui_blank
     tuic_show_summary
 }
@@ -1306,7 +1359,7 @@ tuic_delete() {
             manage restart &
         fi
     fi
-    [[ $should_finalize == true || ${IS_BACKUP_ACTIVE:-} == true ]] && finalize_backup_transaction
+    [[ $should_finalize == true ]] && finalize_backup_transaction
     ui_blank
     ui_kv "已删除" "$tuic_config_file"
     tuic_load_hop && tuic_hop_report_residuals "$tuic_port" || true

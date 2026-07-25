@@ -15,7 +15,7 @@ jobs:
           fetch-depth: 0
       - name: get ver
         run: |
-          echo "$(cat *.sh | grep is_sh_ver=)" >> $GITHUB_ENV
+          printf "is_sh_ver=%s\n" "$(grep -m1 -oE 'v[0-9]+(\.[0-9]+)+' sing-box.sh)" >> "$GITHUB_ENV"
           echo "old=$(git tag | tail -n1)" >> $GITHUB_ENV
       # - name: test
       #   if: env.is_sh_ver == env.old 
@@ -35,6 +35,11 @@ jobs:
           bash -n src/tuic_port_hopping.sh
           bash -n src/help.sh
           bash -n src/version.sh
+      - name: shellcheck static analysis
+        run: |
+          # informational: surfaces static issues without failing the build.
+          # shellcheck is preinstalled on ubuntu-latest runners.
+          shellcheck -x sing-box.sh install.sh src/*.sh || true
       - name: hardening checks
         run: bash tests/supply-chain-hardening.sh
       - name: backup rollback checks

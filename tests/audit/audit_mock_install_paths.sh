@@ -29,6 +29,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AUDIT_DIR="$REPO_ROOT/.audit-tmp"
 mkdir -p "$AUDIT_DIR"
 TEST_ROOT="$(mktemp -d "$AUDIT_DIR/mock-install-root.XXXXXX")"
+trap 'rm -rf "$TEST_ROOT"' EXIT
 MOCK_BIN="$TEST_ROOT/mock-bin"
 MOCK_LOG="$TEST_ROOT/mock-commands.log"
 OS_RELEASE_FILE="$TEST_ROOT/os-release"
