@@ -960,7 +960,7 @@ tuic_hop_delete_all_instances() {
 
 tuic_hop_report_residuals() {
     local real_port=${1:-}
-    local cfg nft_file table service range_start range_end
+    local cfg="" nft_file="" table="" service="" range_start="" range_end=""
 
     if [[ $real_port ]]; then
         cfg=$(tuic_hop_get_config_file "$real_port")
@@ -986,7 +986,7 @@ tuic_hop_report_residuals() {
     tuic_hop_kv "systemd service" "$service"
     tuic_hop_kv "apply script" "$TUIC_HOP_APPLY_SCRIPT"
     tuic_hop_kv "systemd template" "$TUIC_HOP_SYSTEMD_TEMPLATE"
-    if [[ $real_port && $range_start && $range_end ]]; then
+    if [[ $real_port && ${range_start:-} && ${range_end:-} ]]; then
         tuic_hop_kv "UFW rules" "${real_port}/udp, ${range_start}:${range_end}/udp"
     elif [[ $real_port ]]; then
         tuic_hop_kv "UFW rules" "${real_port}/udp, RANGE_START:RANGE_END/udp"
