@@ -15,7 +15,7 @@ trap 'rm -rf "$TEST_ROOT"' EXIT
 
 # --- Simulate the fixed CI extraction logic against sing-box.sh alone ---
 extracted=$(printf 'is_sh_ver=%s\n' "$(grep -m1 -oE 'v[0-9]+(\.[0-9]+)+' "$REPO_ROOT/sing-box.sh")")
-[[ $extracted == "is_sh_ver=v1.33" ]] || fail "CI version extraction must produce is_sh_ver=v1.33 (got: $extracted)"
+[[ $extracted == "is_sh_ver=v1.34" ]] || fail "CI version extraction must produce is_sh_ver=v1.34 (got: $extracted)"
 
 # --- Verify it does NOT double-prefix (rev1 bug) ---
 [[ $extracted != "is_sh_ver=is_sh_ver="* ]] || fail "CI version extraction must not double-prefix is_sh_ver="
