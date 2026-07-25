@@ -147,7 +147,7 @@ assert_match 'load tuic\.sh' "$REPO_ROOT/src/core.sh" \
 assert_match 'commit_server_config_with_validation' "$REPO_ROOT/src/core.sh" \
     'AnyTLS ACME transaction path must remain present'
 
-assert_match '^is_sh_ver=v1\.32$' "$REPO_ROOT/sing-box.sh" \
-    'sing-box.sh must bump the manager version to v1.32'
+assert_match '^is_sh_ver=v1\.33$' "$REPO_ROOT/sing-box.sh" \
+    'sing-box.sh must bump the manager version to v1.33'
 
 printf '[PASS] UI main menu checks\n'
