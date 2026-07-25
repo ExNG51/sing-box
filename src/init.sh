@@ -426,7 +426,13 @@ is_process_running() {
     if type pgrep >/dev/null 2>&1; then
         pgrep -f "$bin" >/dev/null 2>&1
     elif [[ -d /proc ]]; then
-        grep -l "$bin" /proc/*/cmdline >/dev/null 2>&1
+        local pid cmd
+        for pid in /proc/[0-9]*; do
+            [[ ${pid##*/} == "$$" || ${pid##*/} == "$BASHPID" ]] && continue
+            cmd=$(tr '\0' ' ' < "$pid/cmdline" 2>/dev/null) || continue
+            [[ $cmd == *"$bin"* ]] && return 0
+        done
+        return 1
     else
         return 1
     fi

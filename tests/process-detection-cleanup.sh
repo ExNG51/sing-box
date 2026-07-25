@@ -73,7 +73,25 @@ fallback_status=0
 unquoted=$(grep -En 'pgrep -f \$' "$REPO_ROOT/src/init.sh" "$REPO_ROOT/src/core.sh" || true)
 [[ -z "$unquoted" ]] || fail "src/ init.sh and core.sh must not contain unquoted pgrep -f \$ (found: $unquoted)"
 
-raw_proc=$(grep -h '/proc/\*/cmdline' "$REPO_ROOT/src/init.sh" "$REPO_ROOT/src/core.sh" | wc -l | tr -d ' ')
-[[ "$raw_proc" -eq 1 ]] || fail "src/ must encapsulate /proc/*/cmdline inside is_process_running (found count: $raw_proc)"
+# Process-detection /proc glob patterns must only appear inside is_process_running().
+# /proc/*/cmdline and /proc/[0-9]* iterate over process cmdlines; other /proc uses
+# (e.g. /proc/sys/kernel/random/uuid) are unrelated and allowed outside the helper.
+proc_glob_violations=""
+while IFS=: read -r file lineno rest; do
+    [[ -z "$file" ]] && continue
+    # Determine is_process_running function boundary in init.sh
+    in_func=0
+    if [[ "$file" == *init.sh ]]; then
+        func_range=$(awk '/^is_process_running\(\) \{/{s=NR} s && /^}/{print s"-"NR; exit}' "$file")
+        if [[ "$func_range" == *-* ]]; then
+            func_start=${func_range%%-*}
+            func_end=${func_range##*-}
+            (( lineno >= func_start && lineno <= func_end )) && in_func=1
+        fi
+    fi
+    [[ "$in_func" -eq 0 ]] && proc_glob_violations="$proc_glob_violations$file:$lineno:$rest"$'\n'
+done < <(grep -En '/proc/(\*|\[0-9\])' "$REPO_ROOT/src/init.sh" "$REPO_ROOT/src/core.sh" || true)
+[[ -z "$proc_glob_violations" ]] || \
+    fail "src/ must encapsulate process-detection /proc globs inside is_process_running (found outside: $proc_glob_violations)"
 
 printf '[PASS] process detection cleanup checks\n'
