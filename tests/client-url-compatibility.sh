@@ -70,5 +70,88 @@ tuic_key_file=""
  
  [[ $rendered_url == *"insecure=1"* ]] || fail "structured TUIC URL must contain insecure=1"
  [[ $rendered_url == *"allow_insecure=1"* ]] || fail "structured TUIC URL must contain allow_insecure=1"
- 
+
+# --- 3. Dynamic checks for legacy URL rendering in src/core.sh ---
+# Evaluate the real case-arm bodies with the minimum state each URL template reads.
+extract_info_case_arm() {
+    sed -n '/^info() {/,/^}/p' "$REPO_ROOT/src/core.sh" |
+        sed -n "/^    $1)/,/^        ;;/p" | sed '1d;$d'
+}
+
+trojan_arm="$(extract_info_case_arm trojan)"
+hysteria_arm="$(extract_info_case_arm 'hy[*]')"
+anytls_arm="$(extract_info_case_arm anytls)"
+
+[[ -n $trojan_arm ]] || fail "could not extract Trojan URL case arm"
+[[ -n $hysteria_arm ]] || fail "could not extract Hysteria2 URL case arm"
+[[ -n $anytls_arm ]] || fail "could not extract AnyTLS URL case arm"
+
+is_protocol=trojan
+is_addr=10.0.0.1
+port=443
+password=testpass
+is_core_name=sing-box
+net=tcp
+is_url=
+is_can_change=()
+is_info_show=()
+is_info_str=()
+eval "$trojan_arm"
+[[ $is_url == *"insecure=1&allowInsecure=1"* ]] || \
+    fail "Trojan URL must contain dual insecure parameters, got: $is_url"
+
+: > "$TEST_ROOT/tls.cer"
+is_protocol=hysteria2
+is_addr=10.0.0.1
+port=443
+password=testpass
+is_core_name=sing-box
+net=udp
+is_tls_cer="$TEST_ROOT/tls.cer"
+is_url=
+is_can_change=()
+is_info_show=()
+is_info_str=()
+openssl() { printf 'sha256 Fingerprint=AA:BB\n'; }
+eval "$hysteria_arm"
+unset -f openssl
+[[ $is_url == *"insecure=1&allowInsecure=1"* ]] || \
+    fail "Hysteria2 URL with openssl must contain dual insecure parameters, got: $is_url"
+[[ $is_url == *"pinSHA256=AABB"* ]] || \
+    fail "Hysteria2 URL with openssl must contain pinSHA256, got: $is_url"
+
+hysteria_url_without_openssl=$(PATH="$TEST_ROOT/no-openssl"; export PATH
+    is_protocol=hysteria2
+    is_addr=10.0.0.1
+    port=443
+    password=testpass
+    is_core_name=sing-box
+    net=udp
+    is_tls_cer="$TEST_ROOT/tls.cer"
+    is_url=
+    is_can_change=()
+    is_info_show=()
+    is_info_str=()
+    eval "$hysteria_arm"
+    printf '%s' "$is_url")
+[[ $hysteria_url_without_openssl == *"insecure=1&allowInsecure=1"* ]] || \
+    fail "Hysteria2 URL without openssl must contain dual insecure parameters, got: $hysteria_url_without_openssl"
+[[ $hysteria_url_without_openssl != *"pinSHA256="* ]] || \
+    fail "Hysteria2 URL without openssl must not contain pinSHA256, got: $hysteria_url_without_openssl"
+
+is_protocol=anytls
+is_addr=10.0.0.1
+port=443
+password=testpass
+is_core_name=sing-box
+net=tcp
+is_anytls_domain=
+is_url=
+is_can_change=()
+is_info_show=()
+is_info_str=()
+eval "$anytls_arm"
+[[ $is_url == *"insecure=1&allowInsecure=1"* ]] || \
+    fail "AnyTLS insecure URL must contain dual insecure parameters, got: $is_url"
+
  printf '[PASS] client URL compatibility checks\n'

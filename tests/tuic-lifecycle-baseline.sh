@@ -110,8 +110,8 @@ assert_json_string_expr "$tuic_json" \
     '.inbounds[0].type == "tuic" and .inbounds[0].listen_port == 10443 and .inbounds[0].congestion_control == "bbr" and .inbounds[0].tls.alpn[0] == "h3" and .inbounds[0].tls.certificate_path == "/etc/sing-box/bin/tls.cer"' \
     "TUIC insecure render should include UDP port, bbr, h3, and self-signed cert"
 tuic_url=$(tuic_render_client_url "$tuic_json")
-[[ $tuic_url == *"allow_insecure=1"* ]] || fail "TUIC insecure URL should include allow_insecure=1"
-pass "TUIC insecure render and URL carry allow_insecure"
+[[ $tuic_url == *"insecure=1&allow_insecure=1"* ]] || fail "TUIC insecure URL should include dual insecure=1&allow_insecure=1 params"
+pass "TUIC insecure render and URL carry dual insecure params"
 
 tuic_reset_state
 tuic_parse_add_args --port 443 --uuid 11111111-1111-1111-1111-111111111111 --password pass123 --domain example.com --tls acme
