@@ -599,7 +599,7 @@ tuic_render_client_url() {
     [[ $cert_path == "$default_cert" && $key_path == "$default_key" ]] && insecure=1
 
     query="alpn=h3"
-    [[ $insecure ]] && query+="&allow_insecure=1"
+    [[ $insecure ]] && query+="&insecure=1&allow_insecure=1"
     query+="&congestion_control=$(tuic_urlencode "$cc")"
 
     fragment="sing-box-tuic-${domain:-${endpoint//[\[\]:]/-}}"

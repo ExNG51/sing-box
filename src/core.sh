@@ -1214,7 +1214,7 @@ manage() {
     fi
     [[ $is_test_run && ! $is_new_install ]] && {
         sleep 2
-        if [[ ! $(pgrep -f $is_run_bin 2>/dev/null || grep -l "$is_run_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+        if ! is_process_running "$is_run_bin"; then
             is_run_fail=${is_do_name_msg,,}
             [[ ! $is_no_manage_msg ]] && {
                 msg
@@ -1412,10 +1412,7 @@ check_pending_server_config() {
 }
 
 is_core_process_running() {
-    if pgrep -f "$is_core_bin" >/dev/null 2>&1; then
-        return 0
-    fi
-    grep -l "$is_core_bin" /proc/*/cmdline >/dev/null 2>&1
+    is_process_running "$is_core_bin"
 }
 
 restart_core_and_verify() {
@@ -2170,7 +2167,7 @@ get() {
             }
         fi
         is_no_manage_msg=1
-        if [[ ! $(pgrep -f $is_core_bin 2>/dev/null || grep -l "$is_core_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+        if ! is_process_running "$is_core_bin"; then
             _yellow "\n测试运行 $is_core_name ..\n"
             manage start &>/dev/null
             if [[ $is_run_fail == $is_core ]]; then
@@ -2183,7 +2180,7 @@ get() {
             _green "\n$is_core_name 正在运行, 跳过测试\n"
         fi
         if [[ $is_caddy ]]; then
-            if [[ ! $(pgrep -f $is_caddy_bin 2>/dev/null || grep -l "$is_caddy_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+            if ! is_process_running "$is_caddy_bin"; then
                 _yellow "\n测试运行 Caddy ..\n"
                 manage start caddy &>/dev/null
                 if [[ $is_run_fail == 'caddy' ]]; then
@@ -2269,20 +2266,24 @@ info() {
         is_insecure=1
         is_can_change=(0 1 4)
         is_info_show=(0 1 2 10 4 8 20)
-        is_url="$is_protocol://$password@$is_addr:$port?type=tcp&security=tls&allowInsecure=1#$is_core_name-$net-$is_addr"
+        is_url="$is_protocol://$password@$is_addr:$port?type=tcp&security=tls&insecure=1&allowInsecure=1#$is_core_name-$net-$is_addr"
         is_info_str=($is_protocol $is_addr $port $password tcp tls true)
         ;;
     hy*)
         is_can_change=(0 1 4)
         is_info_show=(0 1 2 10 8 9 20)
-        is_url="$is_protocol://$password@$is_addr:$port?alpn=h3&insecure=1#$is_core_name-$net-$is_addr"
+        is_sha256=
+        if type openssl >/dev/null 2>&1 && [[ -f ${is_tls_cer:-$is_core_dir/bin/tls.cer} && -r ${is_tls_cer:-$is_core_dir/bin/tls.cer} ]]; then
+            is_sha256=$(openssl x509 -noout -fingerprint -sha256 -in "${is_tls_cer:-$is_core_dir/bin/tls.cer}" 2>/dev/null | sed 's/.*=//;s/://g' || true)
+        fi
+        is_url="$is_protocol://$password@$is_addr:$port?alpn=h3&insecure=1&allowInsecure=1${is_sha256:+&pinSHA256=$is_sha256}#$is_core_name-$net-$is_addr"
         is_info_str=($is_protocol $is_addr $port $password tls h3 true)
         ;;
     tuic)
         is_insecure=1
         is_can_change=(0 1 4 5)
         is_info_show=(0 1 2 3 10 8 9 20 21)
-        is_url="$is_protocol://$uuid:$password@$is_addr:$port?alpn=h3&allow_insecure=1&congestion_control=bbr#$is_core_name-$net-$is_addr"
+        is_url="$is_protocol://$uuid:$password@$is_addr:$port?alpn=h3&insecure=1&allow_insecure=1&congestion_control=bbr#$is_core_name-$net-$is_addr"
         is_info_str=($is_protocol $is_addr $port $uuid $password tls h3 true bbr)
         ;;
     reality)
@@ -2309,7 +2310,7 @@ info() {
             is_insecure=1
             is_info_show=(0 1 2 10 8 20)
             is_info_str=($is_protocol $is_addr $port $password tls true)
-            is_url="anytls://$password@$is_addr:$port?allowInsecure=1#$is_core_name-$net-$is_addr"
+            is_url="anytls://$password@$is_addr:$port?insecure=1&allowInsecure=1#$is_core_name-$net-$is_addr"
         fi
         ;;
     direct)
@@ -2513,7 +2514,7 @@ get_core_status_text() {
         status_to_text "$is_core_status"
         return
     fi
-    if [[ ${is_core_bin:-} && $(pgrep -f "$is_core_bin" 2>/dev/null || grep -l "$is_core_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+    if [[ ${is_core_bin:-} ]] && is_process_running "$is_core_bin"; then
         printf '%s' "active"
     elif [[ ${is_core_stop:-} ]]; then
         printf '%s' "inactive"
@@ -2531,7 +2532,7 @@ get_caddy_status_text() {
         printf '%s' "inactive"
         return
     fi
-    if [[ ${is_caddy_bin:-} && $(pgrep -f "$is_caddy_bin" 2>/dev/null || grep -l "$is_caddy_bin" /proc/*/cmdline 2>/dev/null) ]]; then
+    if [[ ${is_caddy_bin:-} ]] && is_process_running "$is_caddy_bin"; then
         printf '%s' "active"
     elif [[ ${is_caddy_stop:-} ]]; then
         printf '%s' "inactive"

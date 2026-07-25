@@ -128,8 +128,8 @@ pass "TUIC domain provider render and URL omit allow_insecure"
 tuic_reset_state
 # 使用可读临时证书文件，避免 file-cert 可读性 preflight 误拒（P2-02）。
 tmp_cert="$mock_bin/fullchain.cer"; tmp_key="$mock_bin/private.key"
-printf '-----BEGIN CERTIFICATE-----\nFIXTURE\n-----END CERTIFICATE-----\n' >"$tmp_cert"
-printf '-----BEGIN PRIVATE KEY-----\nFIXTURE\n-----END PRIVATE KEY-----\n' >"$tmp_key"
+printf '%s\n' '-----BEGIN CERTIFICATE-----' 'FIXTURE' '-----END CERTIFICATE-----' >"$tmp_cert"
+printf '%s\n' '-----BEGIN PRIVATE KEY-----' 'FIXTURE' '-----END PRIVATE KEY-----' >"$tmp_key"
 tuic_parse_add_args --port 443 --uuid 11111111-1111-1111-1111-111111111111 --password pass123 --domain example.com --cert-file "$tmp_cert" --key-file "$tmp_key"
 tuic_prepare_add_state
 tuic_json=$(tuic_render_inbound_json)
