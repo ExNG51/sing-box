@@ -20,8 +20,9 @@ head -1 "$REPO_ROOT/src/help.sh" | grep -q '^#!/bin/bash' || \
     fail "src/help.sh must start with a shebang (SC2148 fix)"
 
 # tuic_port_hopping.sh must not use the SC1007 empty-assignment pattern
-grep -qE 'local [a-z_]+= [a-z_]+=' "$REPO_ROOT/src/tuic_port_hopping.sh" && \
-    fail "src/tuic_port_hopping.sh must not use 'var= var=' (SC1007)" || true
+if grep -qE 'local [a-z_]+= [a-z_]+=' "$REPO_ROOT/src/tuic_port_hopping.sh"; then
+    fail "src/tuic_port_hopping.sh must not use 'var= var=' (SC1007)"
+fi
 grep -q "delete_yes='' delete_confirm=''" "$REPO_ROOT/src/tuic_port_hopping.sh" || \
     fail "src/tuic_port_hopping.sh must use '' empty-assignment style"
 

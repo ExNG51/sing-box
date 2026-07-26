@@ -18,8 +18,12 @@ eval "$(sed -n '/^is_process_running()/,/^}/p' "$REPO_ROOT/src/init.sh")"
 
 # --- 1. Test is_process_running helper function exists and handles empty/invalid ---
 type is_process_running >/dev/null 2>&1 || fail "is_process_running function must exist in src/init.sh"
-is_process_running "" && fail "is_process_running must return 1 for empty bin" || true
-is_process_running "nonexistent_proc_xyz_99999" && fail "is_process_running must return 1 for nonexistent process" || true
+if is_process_running ""; then
+    fail "is_process_running must return 1 for empty bin"
+fi
+if is_process_running "nonexistent_proc_xyz_99999"; then
+    fail "is_process_running must return 1 for nonexistent process"
+fi
 
 # --- 2. Test is_process_running with a mocked pgrep present on PATH ---
 mock_pgrep_dir="$TEST_ROOT/mock-pgrep"

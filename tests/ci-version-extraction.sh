@@ -38,23 +38,27 @@ stray_extracted=$(printf 'is_sh_ver=%s\n' "$(grep -m1 -oE 'v[0-9]+(\.[0-9]+)+' "
 
 duplicate_launcher="$TEST_ROOT/duplicate-version.sh"
 printf '%s\n' 'is_sh_ver=v1.34' 'is_sh_ver=v1.35' > "$duplicate_launcher"
-manager_version_from_launcher "$duplicate_launcher" >/dev/null 2>&1 && \
-    fail "version parser must reject duplicate is_sh_ver declarations" || true
+if manager_version_from_launcher "$duplicate_launcher" >/dev/null 2>&1; then
+    fail "version parser must reject duplicate is_sh_ver declarations"
+fi
 
 malformed_duplicate_launcher="$TEST_ROOT/malformed-duplicate-version.sh"
 printf '%s\n' 'is_sh_ver=v1.34' 'is_sh_ver=not-a-version' > "$malformed_duplicate_launcher"
-manager_version_from_launcher "$malformed_duplicate_launcher" >/dev/null 2>&1 && \
-    fail "version parser must reject an additional malformed is_sh_ver declaration" || true
+if manager_version_from_launcher "$malformed_duplicate_launcher" >/dev/null 2>&1; then
+    fail "version parser must reject an additional malformed is_sh_ver declaration"
+fi
 
 missing_launcher="$TEST_ROOT/missing-version.sh"
 printf '%s\n' '# no manager version' > "$missing_launcher"
-manager_version_from_launcher "$missing_launcher" >/dev/null 2>&1 && \
-    fail "version parser must reject a missing is_sh_ver declaration" || true
+if manager_version_from_launcher "$missing_launcher" >/dev/null 2>&1; then
+    fail "version parser must reject a missing is_sh_ver declaration"
+fi
 
 # --- Contract: release.yml must use the explicit sing-box.sh grep, not cat *.sh ---
 grep -q 'grep -m1.*sing-box.sh' "$REPO_ROOT/.github/workflows/release.yml" || \
     fail "release.yml must grep sing-box.sh explicitly for version"
-grep -q 'cat \*.sh' "$REPO_ROOT/.github/workflows/release.yml" && \
-    fail "release.yml must not use 'cat *.sh' for version extraction" || true
+if grep -q 'cat \*.sh' "$REPO_ROOT/.github/workflows/release.yml"; then
+    fail "release.yml must not use 'cat *.sh' for version extraction"
+fi
 
 printf '[PASS] ci version extraction checks\n'
