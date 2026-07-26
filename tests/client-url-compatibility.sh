@@ -180,7 +180,7 @@ ln -s "$(command -v sed)" "$function_only_bin/sed"
 # shellcheck disable=SC2030
 hysteria_url_with_function_only=$(PATH="$function_only_bin"; export PATH
     # Invoked indirectly by the eval-extracted Hysteria2 case arm.
-    # shellcheck disable=SC2329
+    # shellcheck disable=SC2317,SC2329
     openssl() { printf 'sha256 Fingerprint=CC:DD\n'; }
     is_protocol=hysteria2
     is_addr=10.0.0.1
