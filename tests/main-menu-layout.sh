@@ -6,6 +6,9 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sing-box-main-menu.XXXXXX")"
 OUTPUT_FILE="$TMP_DIR/main-menu.out"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+# shellcheck source=tests/lib/version.sh
+. "$REPO_ROOT/tests/lib/version.sh"
+
 fail() {
     printf '[FAIL] %s\n' "$1" >&2
     [[ -f $OUTPUT_FILE ]] && {
@@ -80,12 +83,11 @@ for file in sing-box.sh src/*.sh tests/*.sh; do
     bash -n "$REPO_ROOT/$file"
 done
 
-# Read version dynamically so this test auto-tracks version bumps
-current_ver=$(grep -m1 -oE 'v[0-9]+(\.[0-9]+)+' "$REPO_ROOT/sing-box.sh") || \
-    fail "sing-box.sh must contain a v<x>.<y> version string"
-current_ver_escaped=${current_ver//./\\.}
-assert_match "^is_sh_ver=${current_ver_escaped}\$" "$REPO_ROOT/sing-box.sh" \
-    "sing-box.sh must keep the manager version at $current_ver"
+# Read the exact launcher declaration so this test auto-tracks version bumps.
+current_ver=$(manager_version_from_launcher "$REPO_ROOT/sing-box.sh") || \
+    fail "sing-box.sh must contain exactly one valid is_sh_ver declaration"
+grep -Fxq "is_sh_ver=$current_ver" "$REPO_ROOT/sing-box.sh" || \
+    fail "sing-box.sh must keep the manager version at $current_ver"
 assert_match 'ui_title "sing-box 管理脚本" "\$is_sh_ver"' "$REPO_ROOT/src/core.sh" \
     'is_main_menu must keep the centered ui_title call'
 assert_line_order 'ui_clear' 'ui_title "sing-box 管理脚本" "$is_sh_ver"' "$REPO_ROOT/src/core.sh" \

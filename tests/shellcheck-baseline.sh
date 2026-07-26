@@ -31,6 +31,15 @@ if command -v shellcheck >/dev/null 2>&1; then
     [[ $sc2148 -eq 0 ]] || fail "src/help.sh must have no SC2148 (got $sc2148)"
     sc1007=$(shellcheck -x "$REPO_ROOT/src/tuic_port_hopping.sh" 2>&1 | grep -c "SC1007" || true)
     [[ $sc1007 -eq 0 ]] || fail "src/tuic_port_hopping.sh must have no SC1007 (got $sc1007)"
+
+    for test_file in \
+        tests/client-url-compatibility.sh \
+        tests/process-detection-cleanup.sh \
+        tests/ci-version-extraction.sh \
+        tests/lib/version.sh; do
+        shellcheck -x "$REPO_ROOT/$test_file" || \
+            fail "$test_file must pass shellcheck -x"
+    done
 fi
 
 printf '[PASS] shellcheck baseline checks\n'

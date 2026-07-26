@@ -6,6 +6,9 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sing-box-ask-style.XXXXXX")"
 ASK_SNIPPET="$TMP_DIR/ask-snippet.sh"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+# shellcheck source=tests/lib/version.sh
+. "$REPO_ROOT/tests/lib/version.sh"
+
 fail() {
     printf '[FAIL] %s\n' "$1" >&2
     exit 1
@@ -167,12 +170,11 @@ assert_match '^info\(\)' "$REPO_ROOT/src/core.sh" \
 assert_match '^url_qr\(\)' "$REPO_ROOT/src/core.sh" \
     'url/qr output path must remain present'
 
-# Read version dynamically so this test auto-tracks version bumps
-current_ver=$(grep -m1 -oE 'v[0-9]+(\.[0-9]+)+' "$REPO_ROOT/sing-box.sh") || \
-    fail "sing-box.sh must contain a v<x>.<y> version string"
-current_ver_escaped=${current_ver//./\\.}
-assert_match "^is_sh_ver=${current_ver_escaped}\$" "$REPO_ROOT/sing-box.sh" \
-    "sing-box.sh must keep the manager version at $current_ver"
+# Read the exact launcher declaration so this test auto-tracks version bumps.
+current_ver=$(manager_version_from_launcher "$REPO_ROOT/sing-box.sh") || \
+    fail "sing-box.sh must contain exactly one valid is_sh_ver declaration"
+grep -Fxq "is_sh_ver=$current_ver" "$REPO_ROOT/sing-box.sh" || \
+    fail "sing-box.sh must keep the manager version at $current_ver"
 
 default_output="$TMP_DIR/default.out"
 if ! run_with_timeout 3 bash -c '

@@ -3,6 +3,9 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# shellcheck source=tests/lib/version.sh
+. "$REPO_ROOT/tests/lib/version.sh"
+
 fail() {
     printf '[FAIL] %s\n' "$1" >&2
     exit 1
@@ -147,11 +150,10 @@ assert_match 'load tuic\.sh' "$REPO_ROOT/src/core.sh" \
 assert_match 'commit_server_config_with_validation' "$REPO_ROOT/src/core.sh" \
     'AnyTLS ACME transaction path must remain present'
 
-# Read version dynamically so this test auto-tracks version bumps
-current_ver=$(grep -m1 -oE 'v[0-9]+(\.[0-9]+)+' "$REPO_ROOT/sing-box.sh") || \
-    fail "sing-box.sh must contain a v<x>.<y> version string"
-current_ver_escaped=${current_ver//./\\.}
-assert_match "^is_sh_ver=${current_ver_escaped}\$" "$REPO_ROOT/sing-box.sh" \
-    "sing-box.sh must keep the manager version at $current_ver"
+# Read the exact launcher declaration so this test auto-tracks version bumps.
+current_ver=$(manager_version_from_launcher "$REPO_ROOT/sing-box.sh") || \
+    fail "sing-box.sh must contain exactly one valid is_sh_ver declaration"
+grep -Fxq "is_sh_ver=$current_ver" "$REPO_ROOT/sing-box.sh" || \
+    fail "sing-box.sh must keep the manager version at $current_ver"
 
 printf '[PASS] UI main menu checks\n'
