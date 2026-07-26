@@ -2273,7 +2273,7 @@ info() {
         is_can_change=(0 1 4)
         is_info_show=(0 1 2 10 8 9 20)
         is_sha256=
-        if type openssl >/dev/null 2>&1 && [[ -f ${is_tls_cer:-$is_core_dir/bin/tls.cer} && -r ${is_tls_cer:-$is_core_dir/bin/tls.cer} ]]; then
+        if type -P openssl >/dev/null 2>&1 && [[ -f ${is_tls_cer:-$is_core_dir/bin/tls.cer} && -r ${is_tls_cer:-$is_core_dir/bin/tls.cer} ]]; then
             is_sha256=$(openssl x509 -noout -fingerprint -sha256 -in "${is_tls_cer:-$is_core_dir/bin/tls.cer}" 2>/dev/null | sed 's/.*=//;s/://g' || true)
         fi
         is_url="$is_protocol://$password@$is_addr:$port?alpn=h3&insecure=1&allowInsecure=1${is_sha256:+&pinSHA256=$is_sha256}#$is_core_name-$net-$is_addr"

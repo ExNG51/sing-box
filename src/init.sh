@@ -422,13 +422,14 @@ is_tls_key=$is_core_dir/bin/tls.key
 
 is_process_running() {
     local bin=${1:-}
+    local proc_root=${2:-/proc}
     [[ $bin ]] || return 1
     if type pgrep >/dev/null 2>&1; then
         pgrep -f "$bin" >/dev/null 2>&1
-    elif [[ -d /proc ]]; then
+    elif [[ -d $proc_root ]]; then
         local pid cmd
-        for pid in /proc/[0-9]*; do
-            [[ ${pid##*/} == "$$" || ${pid##*/} == "$BASHPID" ]] && continue
+        for pid in "$proc_root"/[0-9]*; do
+            [[ ${pid##*/} == "$$" || ${pid##*/} == "${BASHPID:-$$}" ]] && continue
             cmd=$(tr '\0' ' ' < "$pid/cmdline" 2>/dev/null) || continue
             [[ $cmd == *"$bin"* ]] && return 0
         done
