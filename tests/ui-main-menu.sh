@@ -147,7 +147,11 @@ assert_match 'load tuic\.sh' "$REPO_ROOT/src/core.sh" \
 assert_match 'commit_server_config_with_validation' "$REPO_ROOT/src/core.sh" \
     'AnyTLS ACME transaction path must remain present'
 
-assert_match '^is_sh_ver=v1\.34$' "$REPO_ROOT/sing-box.sh" \
-    'sing-box.sh must bump the manager version to v1.34'
+# Read version dynamically so this test auto-tracks version bumps
+current_ver=$(grep -m1 -oE 'v[0-9]+(\.[0-9]+)+' "$REPO_ROOT/sing-box.sh") || \
+    fail "sing-box.sh must contain a v<x>.<y> version string"
+current_ver_escaped=${current_ver//./\\.}
+assert_match "^is_sh_ver=${current_ver_escaped}\$" "$REPO_ROOT/sing-box.sh" \
+    "sing-box.sh must keep the manager version at $current_ver"
 
 printf '[PASS] UI main menu checks\n'
